@@ -12,6 +12,8 @@ import threading
 from torch.distributions import Normal
 
 import numpy as np
+import pandas as pd
+from scipy.interpolate import CubicSpline
 from IPython.display import display
 from collections import namedtuple, deque
 import matplotlib.pyplot as plt
@@ -63,119 +65,541 @@ params = {
 pylab.rcParams.update(params)
 np.set_printoptions(suppress=True)
 
-def get_make_env_fn(**kargs):
-    def make_env_fn(env_name, seed=None, render=None, record=False,
-                    unwrapped=False, monitor_mode=None, 
-                    inner_wrappers=None, outer_wrappers=None):
-        mdir = tempfile.mkdtemp()
-        env = None
-        if render:
-            try:
-                env = gym.make(env_name, render=render)
-            except:
-                pass
-        if env is None:
-            env = gym.make(env_name)
-        if seed is not None: env.reset(seed=seed)#env.seed(seed)
-        env = env.unwrapped if unwrapped else env
-        if inner_wrappers:
-            for wrapper in inner_wrappers:
-                env = wrapper(env)
-        env = wrappers.Monitor(
-            env, mdir, force=True, 
-            mode=monitor_mode, 
-            video_callable=lambda e_idx: record) if monitor_mode else env
-        if outer_wrappers:
-            for wrapper in outer_wrappers:
-                env = wrapper(env)
-        return env
-    return make_env_fn, kargs
+print(torch.cuda.is_available())
 
-def get_videos_html(env_videos, title, max_n_videos=4):
-    videos = np.array(env_videos)
-    if len(videos) == 0:
-        return
+# Define the months and corresponding seasonal factors (as you provided)
+month_midpoints = np.array([15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349, 380])  # Middle of each month
+seasonal_factors = np.array([0.000000, -0.00850263509128089, -0.0409638719325969, -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+                             -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, -0.0278622280543003, 0.0])
+
+# Create a cubic spline interpolation
+cs = CubicSpline(month_midpoints, seasonal_factors, bc_type='periodic')
+# Generate daily data for a year (365 days)
+days_in_year = np.linspace(1, 397, 397)
+daily_seasonal_factors = cs(days_in_year)
+
+# Create a DataFrame for the interpolated daily seasonal factors
+dates = pd.date_range(start="2024-01-01", periods=366)  # Create dates for one year
+df = pd.DataFrame(daily_seasonal_factors[:366], index=dates, columns=["Seasonal_Factor"])
+
+# Save the data to a CSV file
+df.to_csv('interpolated_seasonal_factors.csv', index_label='Timestamp')
+
+# Plotting
+plt.figure(figsize=(10, 6))
+plt.plot(days_in_year, daily_seasonal_factors, 'r-', label="Interpolated Daily Seasonal Factors (Cubic Spline)")
+plt.scatter(month_midpoints, seasonal_factors, color='blue', label="Monthly Seasonal Factors (Mid-month)")
+plt.xlabel("Day of Year")
+plt.ylabel("Seasonal Factor")
+plt.title("Cubic Spline Interpolation of Seasonal Factors")
+plt.legend()
+plt.grid(True)
+
+# Save the plot to a file
+plt.savefig('seasonal_factors_interpolation.png', dpi=300, bbox_inches='tight')
+
+# Optionally, comment out plt.show() if you don't want to display the plot
+# plt.show()
+
+
+class GasStorageEnv(gym.Env):
+    def __init__(self, params):
+        super(GasStorageEnv, self).__init__()
+
+        # Calculate the number of business days in 2024
+        self.start_date = pd.Timestamp('2023-04-01')
+        self.end_date = pd.Timestamp('2024-03-31')
+        # List of holidays between April 1, 2023 and March 31, 2024 in the Czech Republic
+        self.holidays = [
+            pd.Timestamp('2023-04-07'),  # Good Friday
+            pd.Timestamp('2023-04-10'),  # Easter Monday
+            pd.Timestamp('2023-05-01'),  # Labour Day
+            pd.Timestamp('2023-05-08'),  # Liberation Day
+            pd.Timestamp('2023-07-05'),  # Saints Cyril and Methodius Day
+            pd.Timestamp('2023-07-06'),  # Jan Hus Day
+            pd.Timestamp('2023-09-28'),  # Czech Statehood Day
+            pd.Timestamp('2023-10-28'),  # Independent Czechoslovak State Day
+            pd.Timestamp('2023-11-17'),  # Struggle for Freedom and Democracy Day
+            pd.Timestamp('2023-12-24'),  # Christmas Eve (Sunday)
+            pd.Timestamp('2023-12-25'),  # Christmas Day
+            pd.Timestamp('2023-12-26'),  # St. Stephen's Day
+            pd.Timestamp('2024-01-01'),  # New Year's Day
+            pd.Timestamp('2024-03-29'),  # Good Friday
+        ]
+        self.all_trading_days = self.trading_days(self.start_date, self.end_date, self.holidays)
+        self.date_to_index = {date: idx for idx, date in enumerate(self.all_trading_days)}
+        self.max_timesteps = len(self.all_trading_days) # Number of business days 
+
+        self.seasonal_factors = pd.read_csv('interpolated_seasonal_factors.csv', index_col='Timestamp', parse_dates=True)
+
+        # Define filling target dates and their required storage levels
+        self.filling_targets = {
+            pd.Timestamp('2023-05-02'): 0.10,  # 10% stock by 1st May
+            pd.Timestamp('2023-07-03'): 0.30,  # 30% stock by 1st July
+            pd.Timestamp('2023-09-01'): 0.60,  # 60% stock by 1st September
+            pd.Timestamp('2023-11-01'): 0.90,  # 90% stock by 1st November
+            pd.Timestamp('2024-01-02'): 0.30,  # 30% stock by 2nd January
+        }
+        # Parameters
+        #self.max_timesteps = params['max_timesteps']
+        self.seed_value = params.get('seed', None)
+        self.dt = 1.0 / self.max_timesteps
+        self.storage_capacity = params['storage_capacity']
+        self.alpha = params['alpha']
+        self.kappa_r = params['kappa_r']
+        self.sigma_r = params['sigma_r']
+        self.theta_r = params['theta_r']
+        self.kappa_delta = params['kappa_delta']
+        self.sigma_delta = params['sigma_delta']
+        self.theta_delta = params['theta_delta']
+        self.sigma_s = params['sigma_s']
+        self.rho_1 = params['rho_1']
+        self.rho_2 = params['rho_2']
+        self.sigma_v = params['sigma_v']
+        self.theta_v = params['theta_v']
+        self.kappa_v = params['kappa_v']
+        self.lam = params['lam']
+        self.sigma_j = params['sigma_j']
+        self.mu_j = params['mu_j']
+        self.theta = params['theta']
+        self.penalty_lambda = params['penalty_lambda']
+        self.bonus_lambda = params['bonus_lambda']
+        # self.W = np.random.default_rng() # Default; this will be seeded in `seed()` method
+
+        # Initial date setup
+        # self.current_date = pd.Timestamp('2024-01-02')  # First business day of January 2024
+
+        # State variables as parameters
+        self.initial_spot_price = params['initial_spot_price']
+        self.initial_r = params['initial_r']
+        self.initial_delta = params['initial_delta']
+        self.initial_V = params['initial_V']
+        
+        # Initialize trajectories
+        self.S_trajectory = []
+        self.SS_trajectory = []
+        self.r_trajectory = []
+        self.delta_trajectory = []
+        self.V_trajectory = []
+        self.F_trajectory = []
+
+        self.delivery_quantities = []
+
+        # Set the seed for reproducibility
+        self.seed(self.seed_value)
+
+        # Action and Observation spaces
+        action_space_low = np.array([-self.alpha * self.storage_capacity, -2 * self.alpha * self.alpha * self.storage_capacity])
+        action_space_high = np.array([self.alpha * self.storage_capacity,  2 * self.alpha * self.alpha * self.storage_capacity])
+        self.action_space = gym.spaces.Box(low=action_space_low, high=action_space_high, dtype=np.float32, seed=self.seed_value)
+        self.observation_space = gym.spaces.Box(low=np.array([0, 0.0, 0.0, 0.0]), high=np.array([self.max_timesteps, self.storage_capacity, 50, 50]), dtype=np.float32,seed=self.seed_value)
+
+        # Initialize state
+        #self.reset()
+        
+    def seed(self, seed=None):
+        """
+        Seed the environment, ensuring reproducibility of the randomness in the environment.
+        """
+        if seed is not None:
+            self.seed_value = seed  # Update seed if provided
+        self.W = np.random.default_rng(seed=self.seed_value)  # Seed the random generator
+        #self.action_space.seed(self.seed_value)  # Seed the action space random generator
+        return [self.seed_value]  
+        
+    def trading_days(self, start_date, end_date, holidays):      
+        all_business_days = pd.date_range(start=start_date, end=end_date, freq='B')
+        # Exclude holidays
+        trading_days = all_business_days.difference(holidays)
+        return trading_days
+        
+    def get_first_last_trading_days(self, current_date):
+        """
+        Calculate the first and last trading days of the next nearby month based on current_date.
+        """
+        # Get the first day of the next month
+        next_month = current_date + pd.offsets.MonthBegin(1)
+        
+        # Create a date range for the entire next month
+        next_month_range = pd.date_range(next_month, next_month + pd.offsets.MonthEnd(1), freq='B')  # Business days only
+
+        # Exclude holidays
+        next_month_range = next_month_range.difference(self.holidays)
+        
+        # tau_1 is the first trading day, tau_2 is the last trading day
+        tau_1 = next_month_range[0]
+        tau_2 = next_month_range[-1]
+        
+        return tau_1, tau_2
+
+    def compute_action_space_bounds(self, k, d_previous_month, next_month_days):
+        # Constants
+        max_injection_rate = 1447  # Maximum injection rate (MWh/day)
+        max_withdrawal_rate = 1813  # Maximum withdrawal rate (MWh/day)
     
-    n_videos = max(1, min(max_n_videos, len(videos)))
-    idxs = np.linspace(0, len(videos) - 1, n_videos).astype(int) if n_videos > 1 else [-1,]
-    videos = videos[idxs,...]
-
-    strm = '<h2>{}<h2>'.format(title)
-    for video_path, meta_path in videos:
-        video = io.open(video_path, 'r+b').read()
-        encoded = base64.b64encode(video)
-
-        with open(meta_path) as data_file:    
-            meta = json.load(data_file)
-
-        html_tag = """
-        <h3>{0}<h3/>
-        <video width="960" height="540" controls>
-            <source src="data:video/mp4;base64,{1}" type="video/mp4" />
-        </video>"""
-        strm += html_tag.format('Episode ' + str(meta['episode_id']), encoded.decode('ascii'))
-    return strm
-
-def get_gif_html(env_videos, title, subtitle_eps=None, max_n_videos=4):
-    videos = np.array(env_videos)
-    if len(videos) == 0:
-        return
+        # Calculate current stock percentage based on the current storage level and total capacity
+        stock_percent_k = self.storage_level / self.storage_capacity  # Fraction of total capacity (0 to 1)
     
-    n_videos = max(1, min(max_n_videos, len(videos)))
-    idxs = np.linspace(0, len(videos) - 1, n_videos).astype(int) if n_videos > 1 else [-1,]
-    videos = videos[idxs,...]
+        # Compute Withdrawal Bound (l_k) based on stock level
+        if stock_percent_k <= 0.4:  # Stock level <= 40%
+            withdrawal_fraction = 0.4 + (1.0 - 0.4) * (stock_percent_k / 0.4)
+        else:  # Stock level > 40%
+            withdrawal_fraction = 1.0  # Max withdrawal rate
+    
+        l_k = -withdrawal_fraction * max_withdrawal_rate
+    
+        # Compute Injection Bound (u_k) based on stock level
+        if stock_percent_k <= 0.7:  # Stock level <= 70%
+            injection_fraction = 0.7 + (1.0 - 0.7) * (stock_percent_k / 0.7)
+        else:  # Stock level > 70%
+            injection_fraction = 1.0 + (0.5 - 1.0) * ((stock_percent_k - 0.7) / (1.0 - 0.7))
+    
+        u_k = injection_fraction * max_injection_rate
+    
+        # Initialize action space bounds
+        action_space_low = np.array([0.0 , 0.0])
+        action_space_high = np.array([0.0, 0.0])
+    
+        # Ensure bounds respect current storage level and capacity
+        tilde_l_k = max(l_k, -self.storage_level)  # Don't withdraw more than available storage
+        tilde_u_k = min(u_k, self.storage_capacity - self.storage_level)  # Don't inject more than available space
+    
+        # Update action space bounds based on storage bounds and previous month demand
+        action_space_low[0] = tilde_l_k - d_previous_month
+        action_space_high[0] = tilde_u_k - d_previous_month
+    
+        # Handle forward market bounds for March (no trading allowed)
+        if next_month_days == 0:
+            action_space_low[1] = 0.0  # No action on forward market in December
+            action_space_high[1] = 0.0
+        else:
+            max_h_j_k = self.alpha * self.storage_capacity / next_month_days
+            action_space_low[1] = -max_h_j_k  # Limit forward market actions
+            action_space_high[1] = max_h_j_k
+    
+        return action_space_low, action_space_high   
+        
+    # def compute_action_space_bounds(self, k, d_previous_month, next_month_days):
+    #     # Initialize action space bounds
+    #     action_space_low = np.array([-self.storage_capacity, -self.storage_capacity])
+    #     action_space_high = np.array([self.storage_capacity, self.storage_capacity])
+        
+    #     # Compute bounds for h_S_k
+    #     if k <= 126:
+    #         l_k = -600
+    #     else:
+    #         l_k = -3072
 
-    strm = '<h2>{}<h2>'.format(title)
-    for video_path, meta_path in videos:
-        basename = os.path.splitext(video_path)[0]
-        gif_path = basename + '.gif'
-        if not os.path.exists(gif_path):
-            ps = subprocess.Popen(
-                ('ffmpeg', 
-                 '-i', video_path, 
-                 '-r', '7',
-                 '-f', 'image2pipe', 
-                 '-vcodec', 'ppm',
-                 '-crf', '20',
-                 '-vf', 'scale=512:-1',
-                 '-'), 
-                stdout=subprocess.PIPE)
-            output = subprocess.check_output(
-                ('convert',
-                 '-coalesce',
-                 '-delay', '7',
-                 '-loop', '0',
-                 '-fuzz', '2%',
-                 '+dither',
-                 '-deconstruct',
-                 '-layers', 'Optimize',
-                 '-', gif_path), 
-                stdin=ps.stdout)
-            ps.wait()
+    #     if k <= 148:
+    #         u_k = 2808
+    #     else:
+    #         u_k = 408
+        
+    #     tilde_l_k = max(l_k, -self.storage_level)
+    #     tilde_u_k = min(u_k, self.storage_capacity - self.storage_level)
+        
+    #     action_space_low[0] = tilde_l_k - d_previous_month
+    #     action_space_high[0] = tilde_u_k - d_previous_month
 
-        gif = io.open(gif_path, 'r+b').read()
-        encoded = base64.b64encode(gif)
+    #     if next_month_days == 0:
+    #         action_space_low[1] = 0.0  # No action on forward market in December
+    #         action_space_high[1] = 0.0 # No action on forward market in December
+    #     else:
+    #         max_h_j_k = self.alpha * self.storage_capacity / next_month_days
+    #         action_space_low[1] = -max_h_j_k # instead of -self.storage_capacity  
+    #         action_space_high[1] = max_h_j_k
+    #     # self.action_space = gym.spaces.Box(low=self.action_space_low, high=self.action_space_high, dtype=np.float32, seed=self.seed_value)
+    #     return action_space_low, action_space_high
+    
+    def forward_price(self, current_date, S_t, r_t, delta_t):
+        # Ensure that sample_spot_price has been called
+        # if len(self.S_trajectory) == 0:
+        #     raise RuntimeError("You must call sample_spot_price() before calling forward_price()")
             
-        with open(meta_path) as data_file:    
-            meta = json.load(data_file)
+        # Assuming t and tau are in terms of time steps
+        # if t < 0 or t >= len(self.S_trajectory):
+        #     raise ValueError("Time t is out of range")
 
-        html_tag = """
-        <h3>{0}<h3/>
-        <img src="data:image/gif;base64,{1}" />"""
-        prefix = 'Trial ' if subtitle_eps is None else 'Episode '
-        sufix = str(meta['episode_id'] if subtitle_eps is None \
-                    else subtitle_eps[meta['episode_id']])
-        strm += html_tag.format(prefix + sufix, encoded.decode('ascii'))
-    return strm
+        # # Spot price at time t
+        # S_t = self.S_trajectory[t]
+        # r_t = self.r_trajectory[t]
+        # delta_t = self.delta_trajectory[t]
+        tau_1, tau_2 = self.get_first_last_trading_days(current_date)
+        
+        # Convert tau_1 and tau_2 to years
+        tau_1_years = (tau_1 - self.current_date).days / self.max_timesteps
+        tau_2_years = (tau_2 - self.current_date).days / self.max_timesteps        
 
-class RenderUint8(gym.Wrapper):
-    def __init__(self, env):
-        super().__init__(env)
-    def reset(self, **kwargs):
-        return self.env.reset(**kwargs)
-    def render(self, mode='rgb_array'):
-        frame = self.env.render(mode=mode)
-        return frame.astype(np.uint8)
+        # Calculate the number of business days (except holidays) in a month 
+        business_days = pd.date_range(start=tau_1, end=tau_2, freq='B')
+        holidays_in_range = [holiday for holiday in self.holidays if tau_1 <= holiday <= tau_2]
+        business_days = business_days.difference(holidays_in_range)
+        num_business_days = len(business_days)
+
+        forward_prices_for_day = []
+        for tau_i, trading_day in zip(np.linspace(tau_1_years, tau_2_years, num=num_business_days), business_days):
+        #for tau_i in np.linspace(tau_1_years, tau_2_years, num=num_business_days):
+            # Implement the Yan (2002) forward price calculation
+            ksi_r = np.sqrt(self.kappa_r**2 + 2*self.sigma_r**2)
+            beta_r = (2*(1 - np.exp(-ksi_r * tau_i))) / (2 * ksi_r - (ksi_r - self.kappa_r) * (1 - np.exp(-ksi_r * tau_i)))
+            beta_delta = -(1 - np.exp(-self.kappa_delta * tau_i)) / self.kappa_delta
+            beta_0 = (self.theta_r / self.sigma_r**2) * (2 * np.log(1 - (ksi_r - self.kappa_r) * (1 - np.exp(-ksi_r * tau_i)) / (2 * ksi_r))
+                                                         + (ksi_r - self.kappa_r) * tau_i) + (self.sigma_delta**2 * tau_i) / (2 * self.kappa_delta**2) \
+                     - (self.sigma_s * self.sigma_delta * self.rho_1 + self.theta_delta) * tau_i / self.kappa_delta \
+                     - (self.sigma_s * self.sigma_delta * self.rho_1 + self.theta_delta) * np.exp(-self.kappa_delta * tau_i) / self.kappa_delta**2 \
+                     + (4 * self.sigma_delta**2 * np.exp(self.kappa_delta * tau_i) - self.sigma_delta**2 * np.exp(-2 * self.kappa_delta * tau_i)) / (4 * self.kappa_delta**3) \
+                     + (self.sigma_s * self.sigma_delta * self.rho_1 + self.theta_delta) / self.kappa_delta**2 \
+                     - 3 * self.sigma_delta**2 / (4 * self.kappa_delta**3)
+
+            # Get the daily seasonal factor for the current trading day
+            daily_seasonal_factor = self.seasonal_factors[(self.seasonal_factors.index.month==trading_day.month)&(self.seasonal_factors.index.day==trading_day.day)].values[0][0]
+            
+            # Forward price calculation
+            forward_price = np.exp(np.log(S_t) + daily_seasonal_factor  + beta_0 + beta_r * r_t + beta_delta * delta_t)
+            forward_prices_for_day.append(forward_price)
+        return np.mean(forward_prices_for_day)
+        
+    def compute_delivery_quantity(self, month_start, month_end):
+        # Get the indices for month_start and month_end
+        start_index = self.date_to_index[month_start]
+        end_index = self.date_to_index[month_end]
+        # Sum the forward actions from start_index to end_index (inclusive)
+        delivery_quantity = sum(self.forward_actions[start_index:end_index + 1])
+        if np.isnan(delivery_quantity):
+            print("month_start: ", month_start)
+            print("month_end: ", month_end)
+            print("start_index: ", start_index)
+            print("end_index: ", end_index)
+            print("self.forward_actions[start_index:end_index + 1]: ", self.forward_actions[start_index:end_index + 1])
+            print(len(self.forward_actions[start_index:end_index + 1]))
+        return delivery_quantity  
+        
+    def reset(self):
+        # Initialize trajectories
+        self.S_t = self.initial_spot_price
+        self.SS_t = np.exp(np.log(self.S_t) + 
+                           self.seasonal_factors[(self.seasonal_factors.index.month==self.all_trading_days[0].month)&(self.seasonal_factors.index.day==self.all_trading_days[0].day)].values[0][0])
+        self.r_t = self.initial_r
+        self.delta_t = self.initial_delta
+        self.V_t = self.initial_V
+        self.step_count = 0
+        self.current_date = self.all_trading_days[self.step_count]
+        self.F_t = self.forward_price(self.current_date, self.S_t, self.r_t, self.delta_t)
+        
+        self.S_trajectory.append(self.S_t)
+        self.SS_trajectory.append(self.SS_t)
+        self.r_trajectory.append(self.r_t)
+        self.delta_trajectory.append(self.delta_t)
+        self.V_trajectory.append(self.V_t)
+        self.F_trajectory.append(self.F_t)
+        
+
+        self.delivery_quantities.append(0.0)
+        self.forward_actions = []
+        
+        
+        self.storage_level = 0
+
+        self.W_S = 0
+        self.W_F = 0
+
+        self.reward = 0
+
+        # Compute action space bounds based on constraints
+        next_month_days = len(self.all_trading_days[self.all_trading_days.month == self.current_date.month+1])
+        self.bounds = self.compute_action_space_bounds(self.step_count, 0, next_month_days)
+
+        return np.array([self.step_count, self.storage_level, self.S_t, self.F_t]), {}
+
+    def step(self, action):
+        # Calculate d^{I-1} for delivery quantities
+        current_month = self.current_date.month
+        if current_month == 4:
+            d_previous_month = 0  # April has no deliveries
+        elif current_month == 1:
+            previous_month_start = self.all_trading_days[self.all_trading_days.month == 12][0]
+            previous_month_end = self.all_trading_days[self.all_trading_days.month == 12][-1]
+            d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
+        else:
+            # For February and onward, calculate d^{I-1}
+            previous_month_start = self.all_trading_days[self.all_trading_days.month == current_month-1][0]
+            previous_month_end = self.all_trading_days[self.all_trading_days.month == current_month-1][-1]
+            d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
+        
+        # Action: [h_S_k, h_j_k]
+        h_S_k, h_j_k = action
+        #h_S_k = np.clip(h_S_k, self.bounds[0][0],self.bounds[1][0])
+        #h_j_k = np.clip(h_j_k, self.bounds[0][1],self.bounds[1][1])
+
+
+        # # Adjust actions to satisfy constraints
+        # h_S_k = self.adjust_h_S_k(h_S_k, d_previous_month)
+        if current_month == 3:
+            next_month_days = 0
+        elif current_month == 12:
+            next_month_days = len(self.all_trading_days[self.all_trading_days.month == 1])
+        else:
+            next_month_days = len(self.all_trading_days[self.all_trading_days.month == current_month+1])
+        # h_j_k = self.adjust_h_j_k(h_j_k, next_month_days)
+            
+        self.forward_actions.append(h_j_k)
+
+        # Updating storage level
+        self.storage_level += h_S_k + d_previous_month 
+
+        # Updating P&L
+        self.W_S += -h_S_k * self.S_t
+        self.W_F += -h_j_k * self.F_t * next_month_days
+        # Compute reward
+        if self.current_date == self.all_trading_days[-2]:#self.max_timesteps - 1:
+            W_terminal = self.W_S + self.W_F
+            # print("self.W_S: ",self.W_S)
+            # print("self.W_F: ",self.W_F)
+            # print("W_terminal: ",W_terminal)
+            self.reward += self.utility_function(W_terminal)
+            # print("self.utility_function(W_terminal): ", self.utility_function(W_terminal))
+            # print("self.reward: ",self.reward)
+            # Penalize if storage level is not zero at terminal time
+            if self.storage_level != 0:
+                penalty = -self.penalty_lambda * abs(self.storage_level)
+                self.reward += penalty
+            #print("self.current_date: ",self.current_date)
+            #print("reward: ",reward)
+        else:
+            # Check if current date is a filling target date
+            if self.current_date in self.filling_targets:
+                target_storage_level = self.filling_targets[self.current_date]
+                
+                # If storage level is less than the required target, apply a penalty
+                if self.storage_level < (target_storage_level * self.storage_capacity):
+                    penalty = -self.penalty_lambda * (target_storage_level * self.storage_capacity - self.storage_level)
+                    self.reward += penalty
+    
+                # Optional: If storage level exceeds the target, give a bonus (optional)
+                elif self.storage_level >= target_storage_level * self.storage_capacity:
+                    bonus = self.bonus_lambda * (self.storage_level - target_storage_level * self.storage_capacity)
+                    self.reward += bonus
+        #print("current_date: ",self.current_date, "reward: ", self.reward)
+        
+        # Generate independent Brownian increments
+        dW_1 = self.W.normal(0, np.sqrt(self.dt))  # For dW_1
+        dW_r = self.W.normal(0, np.sqrt(self.dt))  # For dW_r (interest rate)
+        dW_2 = self.W.normal(0, np.sqrt(self.dt))  # For dW_2
+        dW_delta = self.rho_1 * dW_1 + np.sqrt(1 - self.rho_1 ** 2) * self.W.normal(0, np.sqrt(self.dt))  # For dW_delta (correlated with dW_1)
+        dW_V = self.rho_2 * dW_2 + np.sqrt(1 - self.rho_2 ** 2) * self.W.normal(0, np.sqrt(self.dt))  # For dW_V (correlated with dW_2)
+        
+        # Probability of jump occurrence
+        dq = self.W.choice([0, 1], p=[1 - self.lam * self.dt, self.lam * self.dt])
+
+        # Jump magnitude: ln(1 + J) ~ N[ln(1 + mu_J) - 0.5 * sigma_J^2, sigma_J^2]
+        ln_1_plus_J = self.W.normal(np.log(1 + self.mu_j) - 0.5 * self.sigma_j ** 2, self.sigma_j)
+        J = np.exp(ln_1_plus_J) - 1  # Jump size for the spot price
+
+        # Stochastic differential equations (SDEs)
+        # dS_t = (r_t - delta_t - \lambda \mu_J)S_t dt + \sigma_s S_t dW_1 + \sqrt{V_t} S_t dW_2 + J S_t dq
+        dS_t = (self.r_t - self.delta_t - self.lam * self.mu_j) * self.S_t * self.dt + self.sigma_s * self.S_t * dW_1 + np.sqrt(max(self.V_t,0)) * self.S_t * dW_2 + J * self.S_t * dq
+        self.S_t += dS_t
+        self.S_trajectory.append(self.S_t)
+        
+        # dr_t = (\theta_r - \kappa_r r_t) dt + \sigma_r \sqrt{r_t} dW_r
+        dr_t = (self.theta_r - self.kappa_r * self.r_t) * self.dt + self.sigma_r * np.sqrt(max(self.r_t, 0)) * dW_r
+        self.r_t += dr_t
+        self.r_trajectory.append(self.r_t)
+
+        # ddelta_t = (\theta_delta - \kappa_delta \delta_t) dt + \sigma_delta dW_delta
+        ddelta_t = (self.theta_delta - self.kappa_delta * self.delta_t) * self.dt + self.sigma_delta * dW_delta
+        self.delta_t += ddelta_t
+        self.delta_trajectory.append(self.delta_t)
+
+        # dV_t = (\theta_V - \kappa_V V_t) dt + \sigma_V \sqrt{V_t} dW_V + J_V dq
+        dV_t = (self.theta_v - self.kappa_v * self.V_t) * self.dt + self.sigma_v * np.sqrt(max(self.V_t, 0)) * dW_V + np.exp(self.theta) * dq
+        self.V_t += dV_t
+        self.V_trajectory.append(self.V_t)
+        
+        self.step_count += 1
+        #self.current_date += pd.Timedelta(days=1)
+        #self.current_date += pd.offsets.BDay()
+        self.current_date = self.all_trading_days[self.step_count]
+
+        self.F_t = self.forward_price(self.current_date, self.S_t, self.r_t, self.delta_t)
+        self.F_trajectory.append(self.F_t)
+
+        self.SS_t = np.exp(np.log(self.S_t) + 
+                           self.seasonal_factors[(self.seasonal_factors.index.month==self.all_trading_days[self.step_count].month)&(self.seasonal_factors.index.day==self.all_trading_days[self.step_count].day)].values[0][0])
+        self.SS_trajectory.append(self.SS_t)
+
+        # Check if done
+        
+        is_terminal = self.step_count >= self.max_timesteps - 1 # Whether the episode is over
+        # is_truncated can indicate whether the episode was cut short due to external conditions.
+        is_truncated = False  # Assuming no time limit or other truncation factors
+        
+        ###############################################################
+        # Update constraints of the next action
+        ###############################################################
+        # Calculate d^{I-1} for delivery quantities
+        current_month = self.current_date.month
+        if current_month == 4:
+            d_previous_month = 0  # April has no deliveries
+        elif current_month == 1:
+            previous_month_start = self.all_trading_days[self.all_trading_days.month == 12][0]
+            previous_month_end = self.all_trading_days[self.all_trading_days.month == 12][-1]
+            d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
+        else:
+            # For other months, calculate d^{I-1}
+            previous_month_start = self.all_trading_days[self.all_trading_days.month == current_month-1][0]
+            previous_month_end = self.all_trading_days[self.all_trading_days.month == current_month-1][-1]
+            d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
+            if np.isnan(d_previous_month):
+                raise ValueError(f"Invalid bounds: d_previous_month={d_previous_month}")
+        if current_month == 3:
+            next_month_days = 0
+        elif current_month == 12:
+            next_month_days = len(self.all_trading_days[self.all_trading_days.month == 1])            
+        else:
+            next_month_days = len(self.all_trading_days[self.all_trading_days.month == current_month+1])
+        # Now we compute the constraints for the next actions
+        self.bounds = self.compute_action_space_bounds(self.step_count, d_previous_month, next_month_days)
+        
+        return np.array([self.step_count, self.storage_level, self.SS_t, self.F_t]), self.reward, is_terminal, is_truncated, {}
+    
+    # def adjust_h_S_k(self, h_S_k, d_previous_month):
+    #     # Compute constraints for h_S_k
+    #     k = self.step_count
+    #     if k <= 126:
+    #         l_k = -600
+    #     else:
+    #         l_k = -3072
+
+    #     if k <= 148:
+    #         u_k = 2808
+    #     else:
+    #         u_k = 408
+        
+    #     tilde_l_k = max(l_k, -self.storage_level)
+    #     tilde_u_k = min(u_k, self.storage_capacity - self.storage_level)
+        
+    #     return np.clip(h_S_k, tilde_l_k- d_previous_month, tilde_u_k - d_previous_month)
+    
+    # def adjust_h_j_k(self, h_j_k, next_month_days):
+    #     # Check forward trading action constraint
+    #     if next_month_days == 0:
+    #         return 0 # No action on forward market in December
+    #     else:
+    #         max_h_j_k = self.alpha * self.storage_capacity / next_month_days
+    #         return np.clip(h_j_k, -np.storage_capacity, max_h_j_k)
+    
+    # def utility_function(self, W):
+    #     # Logarithmic utility function
+    #     if W > 0:
+    #         return np.log(W)
+    #     else:
+    #         # In case W is zero or negative, you can decide on how to handle it.
+    #         # One option is to return a large negative value (strong penalty).
+    #         # Alternatively, you could add a small epsilon to avoid log(0).
+    #         return -np.inf  # Or some very large negative number, like -1e6
+    def utility_function(self, W):
+        return W
 
 class FCQV(nn.Module):
     def __init__(self, 
@@ -294,8 +718,8 @@ class FCDP(nn.Module):
 
 class ReplayBuffer():
     def __init__(self, 
-                 max_size=10000, 
-                 batch_size=64):
+                 max_size=100000,
+                 batch_size=128):
         self.ss_mem = np.empty(shape=(max_size), dtype=np.ndarray)
         self.as_mem = np.empty(shape=(max_size), dtype=np.ndarray)
         self.rs_mem = np.empty(shape=(max_size), dtype=np.ndarray)
@@ -338,11 +762,15 @@ class ReplayBuffer():
         return self.size
 
 class GreedyStrategy():
-    def __init__(self, bounds):
-        self.low, self.high = bounds
+    #def __init__(self, bounds):
+    def __init__(self):
+        #self.low, self.high = bounds
         self.ratio_noise_injected = 0
 
-    def select_action(self, model, state):
+    #def select_action(self, model, state):
+    def select_action(self, model, state, bounds):
+        # added line:
+        self.low, self.high = bounds
         with torch.no_grad():
             greedy_action = model(state).cpu().detach().data.numpy().squeeze()
 
@@ -350,24 +778,32 @@ class GreedyStrategy():
         return np.reshape(action, self.high.shape)
 
 class NormalNoiseStrategy():
-    def __init__(self, bounds, exploration_noise_ratio=0.1):
-        self.low, self.high = bounds
+    #def __init__(self, bounds, exploration_noise_ratio=0.1):
+    def __init__(self, exploration_noise_ratio=0.1):
+        #self.low, self.high = bounds
         self.exploration_noise_ratio = exploration_noise_ratio
         self.ratio_noise_injected = 0
-
-    def select_action(self, model, state, max_exploration=False):
+    #def select_action(self, model, state, max_exploration=False):
+    def select_action(self, model, state, bounds, max_exploration=False):
+        # 2 added line:
+        self.low, self.high = bounds
+        action_range = self.high - self.low
+            
         if max_exploration:
-            noise_scale = self.high
+            #noise_scale = self.high
+            noise_scale = action_range
         else:
-            noise_scale = self.exploration_noise_ratio * self.high
+            #noise_scale = self.exploration_noise_ratio * self.high
+            noise_scale = self.exploration_noise_ratio * action_range
 
         with torch.no_grad():
             greedy_action = model(state).cpu().detach().data.numpy().squeeze()
+            if np.isnan(greedy_action).any():
+                print("greedy action is NaN")
 
         noise = np.random.normal(loc=0, scale=noise_scale, size=len(self.high))
         noisy_action = greedy_action + noise
         action = np.clip(noisy_action, self.low, self.high)
-        
         self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
         return action
 
@@ -433,11 +869,16 @@ class DDPG():
 
     def interaction_step(self, state, env):
         min_samples = self.replay_buffer.batch_size * self.n_warmup_batches
+        
+        # Added Line:
+        action_bounds = env.bounds
+        
         action = self.training_strategy.select_action(self.online_policy_model, 
                                                       state, 
+                                                      action_bounds,  # Pass dynamic bounds here
                                                       len(self.replay_buffer) < min_samples)
-        new_state, reward, is_terminal, truncated, info = env.step(action)
-        is_truncated = 'TimeLimit.truncated' in info and info['TimeLimit.truncated']
+        new_state, reward, is_terminal, is_truncated, info = env.step(action)
+        #is_truncated = 'TimeLimit.truncated' in info and info['TimeLimit.truncated']
         is_failure = is_terminal and not is_truncated
         experience = (state, action, reward, new_state, float(is_failure))
         self.replay_buffer.store(experience)
@@ -462,17 +903,19 @@ class DDPG():
             mixed_weights = target_ratio + online_ratio
             target.data.copy_(mixed_weights)
 
-    def train(self, make_env_fn, make_env_kargs, seed, gamma, 
+    #def train(self, make_env_fn, make_env_kargs, seed, gamma, 
+    def train(self, env, seed, gamma,
               max_minutes, max_episodes, goal_mean_100_reward):
         training_start, last_debug_time = time.time(), float('-inf')
 
         self.checkpoint_dir = tempfile.mkdtemp()
-        self.make_env_fn = make_env_fn
-        self.make_env_kargs = make_env_kargs
+        #print(self.checkpoint_dir)
+        #self.make_env_fn = make_env_fn
+        #self.make_env_kargs = make_env_kargs
         self.seed = seed
         self.gamma = gamma
         
-        env = self.make_env_fn(**self.make_env_kargs, seed=self.seed)
+        #env = self.make_env_fn(**self.make_env_kargs, seed=self.seed)
         torch.manual_seed(self.seed) ; np.random.seed(self.seed) ; random.seed(self.seed)
     
         nS, nA = env.observation_space.shape[0], env.action_space.shape[0]
@@ -494,8 +937,10 @@ class DDPG():
                                                          self.policy_optimizer_lr)
 
         self.replay_buffer = self.replay_buffer_fn()
-        self.training_strategy = training_strategy_fn(action_bounds)
-        self.evaluation_strategy = evaluation_strategy_fn(action_bounds)
+        #self.training_strategy = training_strategy_fn(action_bounds)
+        self.training_strategy = training_strategy_fn() # No action bounds here
+        # self.evaluation_strategy = evaluation_strategy_fn(action_bounds)
+        self.evaluation_strategy = evaluation_strategy_fn() # No action bounds here
                     
         result = np.empty((max_episodes, 5))
         result[:] = np.nan
@@ -508,7 +953,6 @@ class DDPG():
             self.episode_reward.append(0.0)
             self.episode_timestep.append(0.0)
             self.episode_exploration.append(0.0)
-
             for step in count():
                 state, is_terminal = self.interaction_step(state, env)
 
@@ -594,7 +1038,10 @@ class DDPG():
             d = False
             rs.append(0)
             for _ in count():
-                a = self.evaluation_strategy.select_action(eval_policy_model, s)
+                # Added Line:
+                action_bounds = env.bounds
+                a = self.evaluation_strategy.select_action(eval_policy_model, s, action_bounds # Pass dynamic bounds her
+                                                          )
                 s, r, d, _, _ = eval_env.step(a)
                 rs[-1] += r
                 if d: break
@@ -610,7 +1057,7 @@ class DDPG():
         paths_dic = {int(path.split('.')[-2]):path for path in paths}
         last_ep = max(paths_dic.keys())
         # checkpoint_idxs = np.geomspace(1, last_ep+1, n_checkpoints, endpoint=True, dtype=np.int)-1
-        checkpoint_idxs = np.linspace(1, last_ep+1, n_checkpoints, endpoint=True, dtype=np.int)-1
+        checkpoint_idxs = np.linspace(1, last_ep+1, n_checkpoints, endpoint=True, dtype=int)-1
 
         for idx, path in paths_dic.items():
             if idx in checkpoint_idxs:
@@ -655,15 +1102,17 @@ class DDPG():
         torch.save(model.state_dict(), 
                    os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
 
-ddpg_results = []
-best_agent, best_eval_score = None, float('-inf')
-for seed in SEEDS:
+import multiprocessing as mp
+
+# Define a function to run the DDPG training for a single seed
+def train_ddpg_for_seed(seed):
+    # Environment settings
     environment_settings = {
-        'env_name': 'Pendulum-v1',
+        'env_name': 'GasStorageEnv',
         'gamma': 0.99,
-        'max_minutes': 20,
-        'max_episodes': 500,
-        'goal_mean_100_reward': -150
+        'max_minutes': np.inf,
+        'max_episodes': 10000,
+        'goal_mean_100_reward': np.inf
     }
 
     policy_model_fn = lambda nS, bounds: FCDP(nS, bounds, hidden_dims=(256,256))
@@ -676,16 +1125,15 @@ for seed in SEEDS:
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0003
 
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.1)
-    evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
+    training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
+    evaluation_strategy_fn = lambda: GreedyStrategy()
 
     replay_buffer_fn = lambda: ReplayBuffer(max_size=100000, batch_size=256)
-    n_warmup_batches = 5
+    n_warmup_batches = 50
     update_target_every_steps = 1
     tau = 0.005
-    
-    env_name, gamma, max_minutes, \
-    max_episodes, goal_mean_100_reward = environment_settings.values()
+
+    env_name, gamma, max_minutes, max_episodes, goal_mean_100_reward = environment_settings.values()
 
     agent = DDPG(replay_buffer_fn,
                  policy_model_fn, 
@@ -702,12 +1150,148 @@ for seed in SEEDS:
                  update_target_every_steps,
                  tau)
 
-    make_env_fn, make_env_kargs = get_make_env_fn(env_name=env_name)
-    result, final_eval_score, training_time, wallclock_time = agent.train(
-        make_env_fn, make_env_kargs, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
-    ddpg_results.append(result)
-    if final_eval_score > best_eval_score:
-        best_eval_score = final_eval_score
-        best_agent = agent
-ddpg_results = np.array(ddpg_results)
-_ = BEEP()
+    # Parameters for the environment
+    params = {
+        'seed': seed,
+        'storage_capacity': 100000,
+        'alpha': 0.05,
+        'kappa_r': 0.492828372105622,
+        'sigma_r': 0.655898616135014,
+        'theta_r': 0.000588276156660185,
+        'kappa_delta': 1.17723166341479,
+        'sigma_delta': 1.03663918307669,
+        'theta_delta': -0.213183673388138,
+        'sigma_s': 0.791065501973918,
+        'rho_1': 0.899944474373156,
+        'rho_2': -0.306810849087325,
+        'sigma_v': 0.825941396204049,
+        'theta_v': 0.0505685591761352,
+        'theta': 0.00640705687096142,
+        'kappa_v': 2.36309244973169,
+        'lam': 0.638842070975342,
+        'sigma_j': 0.032046147726045,
+        'mu_j': 0.0137146728855484,
+        'initial_spot_price': np.exp(2.9479),
+        'initial_r': 0.15958620269619,
+        'initial_delta': 0.106417288572204,
+        'initial_V': 0.0249967313173077,
+        'penalty_lambda': 15,
+        'bonus_lambda': 5,
+    }
+    env = GasStorageEnv(params)
+    
+    result, final_eval_score, training_time, wallclock_time = agent.train(env, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
+    
+    return result, final_eval_score  # Return the results for further analysis
+
+# Main execution block
+if __name__ == '__main__':
+    SEEDS = [42, 43, 44, 45]  # Example seeds
+    ddpg_results = []
+    best_agent, best_eval_score = None, float('-inf')
+
+    with mp.Pool(processes=mp.cpu_count()) as pool:
+        results = pool.map(train_ddpg_for_seed, SEEDS)  # Parallel execution
+
+    for result, final_eval_score in results:
+        ddpg_results.append(result)
+        if final_eval_score > best_eval_score:
+            best_eval_score = final_eval_score
+            # Here you would also need to save or reference the best agent if needed
+
+    ddpg_results = np.array(ddpg_results)
+    _ = BEEP()
+
+ddpg_max_t, ddpg_max_r, ddpg_max_s, \
+ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
+ddpg_min_t, ddpg_min_r, ddpg_min_s, \
+ddpg_min_sec, ddpg_min_rt = np.min(ddpg_results, axis=0).T
+ddpg_mean_t, ddpg_mean_r, ddpg_mean_s, \
+ddpg_mean_sec, ddpg_mean_rt = np.mean(ddpg_results, axis=0).T
+ddpg_x = np.arange(len(ddpg_mean_s))
+
+fig, axs = plt.subplots(2, 1, figsize=(15,10), sharey=False, sharex=True)
+
+# DDPG
+axs[0].plot(ddpg_max_r, 'r', linewidth=1)
+axs[0].plot(ddpg_min_r, 'r', linewidth=1)
+axs[0].plot(ddpg_mean_r, 'r:', label='DDPG', linewidth=2)
+axs[0].fill_between(
+    ddpg_x, ddpg_min_r, ddpg_max_r, facecolor='r', alpha=0.3)
+
+axs[1].plot(ddpg_max_s, 'r', linewidth=1)
+axs[1].plot(ddpg_min_s, 'r', linewidth=1)
+axs[1].plot(ddpg_mean_s, 'r:', label='DDPG', linewidth=2)
+axs[1].fill_between(
+    ddpg_x, ddpg_min_s, ddpg_max_s, facecolor='r', alpha=0.3)
+
+# ALL
+axs[0].set_title('Moving Avg Reward (Training)')
+axs[1].set_title('Moving Avg Reward (Evaluation)')
+plt.xlabel('Episodes')
+axs[0].legend(loc='upper left')
+
+# Save the plot to a file
+plt.savefig('ddpg_results_plot.png', dpi=300, bbox_inches='tight')
+
+# Optionally, you can comment out plt.show() if you don't want to display the plot
+# plt.show()
+
+fig, axs = plt.subplots(3, 1, figsize=(15,15), sharey=False, sharex=True)
+
+# DDPG
+axs[0].plot(ddpg_max_t, 'r', linewidth=1)
+axs[0].plot(ddpg_min_t, 'r', linewidth=1)
+axs[0].plot(ddpg_mean_t, 'r:', label='DDPG', linewidth=2)
+axs[0].fill_between(
+    ddpg_x, ddpg_min_t, ddpg_max_t, facecolor='r', alpha=0.3)
+
+axs[1].plot(ddpg_max_sec, 'r', linewidth=1)
+axs[1].plot(ddpg_min_sec, 'r', linewidth=1)
+axs[1].plot(ddpg_mean_sec, 'r:', label='DDPG', linewidth=2)
+axs[1].fill_between(
+    ddpg_x, ddpg_min_sec, ddpg_max_sec, facecolor='r', alpha=0.3)
+
+axs[2].plot(ddpg_max_rt, 'r', linewidth=1)
+axs[2].plot(ddpg_min_rt, 'r', linewidth=1)
+axs[2].plot(ddpg_mean_rt, 'r:', label='DDPG', linewidth=2)
+axs[2].fill_between(
+    ddpg_x, ddpg_min_rt, ddpg_max_rt, facecolor='r', alpha=0.3)
+
+# ALL
+axs[0].set_title('Total Steps')
+axs[1].set_title('Training Time')
+axs[2].set_title('Wall-clock Time')
+plt.xlabel('Episodes')
+axs[0].legend(loc='upper left')
+
+# Save the plot to a file
+plt.savefig('ddpg_timings_plot.png', dpi=300, bbox_inches='tight')
+
+# Optionally, comment out plt.show() if you don't want to display the plot
+# plt.show()
+
+ddpg_root_dir = os.path.join(RESULTS_DIR, 'ddpg')
+not os.path.exists(ddpg_root_dir) and os.makedirs(ddpg_root_dir)
+
+np.save(os.path.join(ddpg_root_dir, 'x'), ddpg_x)
+
+np.save(os.path.join(ddpg_root_dir, 'max_r'), ddpg_max_r)
+np.save(os.path.join(ddpg_root_dir, 'min_r'), ddpg_min_r)
+np.save(os.path.join(ddpg_root_dir, 'mean_r'), ddpg_mean_r)
+
+np.save(os.path.join(ddpg_root_dir, 'max_s'), ddpg_max_s)
+np.save(os.path.join(ddpg_root_dir, 'min_s'), ddpg_min_s )
+np.save(os.path.join(ddpg_root_dir, 'mean_s'), ddpg_mean_s)
+
+np.save(os.path.join(ddpg_root_dir, 'max_t'), ddpg_max_t)
+np.save(os.path.join(ddpg_root_dir, 'min_t'), ddpg_min_t)
+np.save(os.path.join(ddpg_root_dir, 'mean_t'), ddpg_mean_t)
+
+np.save(os.path.join(ddpg_root_dir, 'max_sec'), ddpg_max_sec)
+np.save(os.path.join(ddpg_root_dir, 'min_sec'), ddpg_min_sec)
+np.save(os.path.join(ddpg_root_dir, 'mean_sec'), ddpg_mean_sec)
+
+np.save(os.path.join(ddpg_root_dir, 'max_rt'), ddpg_max_rt)
+np.save(os.path.join(ddpg_root_dir, 'min_rt'), ddpg_min_rt)
+np.save(os.path.join(ddpg_root_dir, 'mean_rt'), ddpg_mean_rt)
