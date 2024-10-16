@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N ddpg
-#PBS -l select=1:ncpus=1:mem=4gb
+#PBS -l select=1:ncpus=16:mem=16gb
 #PBS -l walltime=01:00:00
 #PBS -o ddpg.o
 #PBS -e ddpg.e
@@ -15,7 +15,7 @@ module load python/3.8
 export PYTHONPATH=$PYTHONPATH:/storage/praha1/home/tadim/.local/lib/python3.8/site-packages
 
 # Change to the working directory
-cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_11
+cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
 # Run the Python script
-time python REINFORCE.py
+time python ddpg.py
