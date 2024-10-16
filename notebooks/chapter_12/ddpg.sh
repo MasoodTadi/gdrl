@@ -11,6 +11,9 @@ pwd
 # Load the necessary module
 module load python/3.8
 
+# Activate the virtual environment
+source ~/myenv/bin/activate
+
 # Set PYTHONPATH to include local packages
 export PYTHONPATH=$PYTHONPATH:/storage/praha1/home/tadim/.local/lib/python3.8/site-packages
 
@@ -19,3 +22,4 @@ cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
 # Run the Python script
 time python ddpg.py
+
