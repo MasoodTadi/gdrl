@@ -1104,6 +1104,36 @@ class DDPG():
 
 import multiprocessing as mp
 
+import multiprocessing as mp
+# Define a function to create the policy model
+def create_policy_model(nS, bounds):
+    return FCDP(nS, bounds, hidden_dims=(256, 256))
+
+# Define the policy optimizer function
+def create_policy_optimizer(net, lr):
+    return optim.Adam(net.parameters(), lr=lr)
+
+# Define a function to create the value model
+def create_value_model(nS, nA):
+    return FCQV(nS, nA, hidden_dims=(256, 256))
+
+# Define the value optimizer function
+def create_value_optimizer(net, lr):
+    return optim.Adam(net.parameters(), lr=lr)
+
+# Define the training strategy function
+def create_training_strategy():
+    return NormalNoiseStrategy(exploration_noise_ratio=0.1)
+
+# Define the evaluation strategy function
+def create_evaluation_strategy():
+    return GreedyStrategy()
+
+# Define the replay buffer function
+def create_replay_buffer():
+    return ReplayBuffer(max_size=100000, batch_size=256)
+
+
 # Define a function to run the DDPG training for a single seed
 def train_ddpg_for_seed(seed):
     # Environment settings
@@ -1111,25 +1141,41 @@ def train_ddpg_for_seed(seed):
         'env_name': 'GasStorageEnv',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 10000,
+        'max_episodes': 10,
         'goal_mean_100_reward': np.inf
     }
 
-    policy_model_fn = lambda nS, bounds: FCDP(nS, bounds, hidden_dims=(256,256))
+    # policy_model_fn = lambda nS, bounds: FCDP(nS, bounds, hidden_dims=(256,256))
+    # policy_max_grad_norm = float('inf')
+    # policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
+    # policy_optimizer_lr = 0.0003
+
+    # value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256,256))
+    # value_max_grad_norm = float('inf')
+    # value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
+    # value_optimizer_lr = 0.0003
+
+    # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
+    # evaluation_strategy_fn = lambda: GreedyStrategy()
+
+    # replay_buffer_fn = lambda: ReplayBuffer(max_size=100000, batch_size=256)
+
+    policy_model_fn = create_policy_model
     policy_max_grad_norm = float('inf')
-    policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
+    policy_optimizer_fn = create_policy_optimizer
     policy_optimizer_lr = 0.0003
-
-    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256,256))
+    
+    value_model_fn = create_value_model
     value_max_grad_norm = float('inf')
-    value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
+    value_optimizer_fn = create_value_optimizer
     value_optimizer_lr = 0.0003
+    
+    training_strategy_fn = create_training_strategy
+    evaluation_strategy_fn = create_evaluation_strategy
+    
+    replay_buffer_fn = create_replay_buffer
 
-    training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
-    evaluation_strategy_fn = lambda: GreedyStrategy()
-
-    replay_buffer_fn = lambda: ReplayBuffer(max_size=100000, batch_size=256)
-    n_warmup_batches = 50
+    n_warmup_batches = 1
     update_target_every_steps = 1
     tau = 0.005
 
