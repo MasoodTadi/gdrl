@@ -1141,7 +1141,7 @@ def train_ddpg_for_seed(seed):
         'env_name': 'GasStorageEnv',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 10,
+        'max_episodes': 10000,
         'goal_mean_100_reward': np.inf
     }
 
@@ -1175,7 +1175,7 @@ def train_ddpg_for_seed(seed):
     
     replay_buffer_fn = create_replay_buffer
 
-    n_warmup_batches = 1
+    n_warmup_batches = 50
     update_target_every_steps = 1
     tau = 0.005
 
