@@ -938,9 +938,9 @@ class DDPG():
 
         self.replay_buffer = self.replay_buffer_fn()
         #self.training_strategy = training_strategy_fn(action_bounds)
-        self.training_strategy = training_strategy_fn() # No action bounds here
+        self.training_strategy = self.training_strategy_fn() # No action bounds here
         # self.evaluation_strategy = evaluation_strategy_fn(action_bounds)
-        self.evaluation_strategy = evaluation_strategy_fn() # No action bounds here
+        self.evaluation_strategy = self.evaluation_strategy_fn() # No action bounds here
                     
         result = np.empty((max_episodes, 5))
         result[:] = np.nan
@@ -1039,7 +1039,7 @@ class DDPG():
             rs.append(0)
             for _ in count():
                 # Added Line:
-                action_bounds = env.bounds
+                action_bounds = eval_env.bounds
                 a = self.evaluation_strategy.select_action(eval_policy_model, s, action_bounds # Pass dynamic bounds her
                                                           )
                 s, r, d, _, _ = eval_env.step(a)
