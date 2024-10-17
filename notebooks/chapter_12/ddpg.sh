@@ -12,7 +12,7 @@ pwd
 #module load python/3.8
 
 # Activate the virtual environment
-source ~/myenv/bin/activate
+source /storage/praha1/home/tadim/myenv/bin/activate
 
 # Set PYTHONPATH to include local packages
 #export PYTHONPATH=$PYTHONPATH:/storage/praha1/home/tadim/.local/lib/python3.8/site-packages
