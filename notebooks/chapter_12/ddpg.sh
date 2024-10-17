@@ -1,7 +1,7 @@
 #!/bin/bash
 #PBS -N ddpg
 #PBS -l select=1:ncpus=16:mem=16gb
-#PBS -l walltime=01:00:00
+#PBS -l walltime=72:00:00
 #PBS -o ddpg.o
 #PBS -e ddpg.e
 
