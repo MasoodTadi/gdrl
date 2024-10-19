@@ -1121,9 +1121,8 @@ class DDPG():
         torch.save(model.state_dict(), 
                    os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
 
-import multiprocessing as mp
+import multiprocessing
 
-import multiprocessing as mp
 # Define a function to create the policy model
 def create_policy_model(nS, bounds):
     return FCDP(nS, bounds, hidden_dims=(256, 256))
@@ -1255,7 +1254,7 @@ if __name__ == '__main__':
     ddpg_results = []
     best_agent, best_eval_score = None, float('-inf')
 
-    with mp.Pool(processes=mp.cpu_count()) as pool:
+    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
         results = pool.map(train_ddpg_for_seed, SEEDS)  # Parallel execution
 
     for result, final_eval_score in results:
