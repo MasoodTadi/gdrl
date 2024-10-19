@@ -1050,6 +1050,13 @@ class DDPG():
         self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
     
+    def logger_process(self, log_queue):
+        while True:
+            message = log_queue.get()
+            if message == "END":
+                break
+            print(message)
+            
     def evaluate(self, eval_policy_model, eval_env, n_episodes=1):
         rs = []
         for _ in range(n_episodes):
