@@ -1206,6 +1206,13 @@ if __name__ == '__main__':
     ddpg_results = []
     best_agent, best_eval_score = None, float('-inf')
 
+    # for seed in SEEDS:
+    #     result, final_eval_score = train_ddpg_for_seed(seed)  # Sequential execution
+    #     ddpg_results.append(result)
+    #     if final_eval_score > best_eval_score:
+    #         best_eval_score = final_eval_score
+    #         best_agent = agent
+        
     with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
         results = pool.map(train_ddpg_for_seed, SEEDS)  # Parallel execution
 
@@ -1217,97 +1224,96 @@ if __name__ == '__main__':
 
     ddpg_results = np.array(ddpg_results)
     _ = BEEP()
-
-ddpg_max_t, ddpg_max_r, ddpg_max_s, \
-ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
-ddpg_min_t, ddpg_min_r, ddpg_min_s, \
-ddpg_min_sec, ddpg_min_rt = np.min(ddpg_results, axis=0).T
-ddpg_mean_t, ddpg_mean_r, ddpg_mean_s, \
-ddpg_mean_sec, ddpg_mean_rt = np.mean(ddpg_results, axis=0).T
-ddpg_x = np.arange(len(ddpg_mean_s))
-
-fig, axs = plt.subplots(2, 1, figsize=(15,10), sharey=False, sharex=True)
-
-# DDPG
-axs[0].plot(ddpg_max_r, 'r', linewidth=1)
-axs[0].plot(ddpg_min_r, 'r', linewidth=1)
-axs[0].plot(ddpg_mean_r, 'r:', label='DDPG', linewidth=2)
-axs[0].fill_between(
-    ddpg_x, ddpg_min_r, ddpg_max_r, facecolor='r', alpha=0.3)
-
-axs[1].plot(ddpg_max_s, 'r', linewidth=1)
-axs[1].plot(ddpg_min_s, 'r', linewidth=1)
-axs[1].plot(ddpg_mean_s, 'r:', label='DDPG', linewidth=2)
-axs[1].fill_between(
-    ddpg_x, ddpg_min_s, ddpg_max_s, facecolor='r', alpha=0.3)
-
-# ALL
-axs[0].set_title('Moving Avg Reward (Training)')
-axs[1].set_title('Moving Avg Reward (Evaluation)')
-plt.xlabel('Episodes')
-axs[0].legend(loc='upper left')
-
-# Save the plot to a file
-plt.savefig('ddpg_results_plot.png', dpi=300, bbox_inches='tight')
-
-# Optionally, you can comment out plt.show() if you don't want to display the plot
-# plt.show()
-
-fig, axs = plt.subplots(3, 1, figsize=(15,15), sharey=False, sharex=True)
-
-# DDPG
-axs[0].plot(ddpg_max_t, 'r', linewidth=1)
-axs[0].plot(ddpg_min_t, 'r', linewidth=1)
-axs[0].plot(ddpg_mean_t, 'r:', label='DDPG', linewidth=2)
-axs[0].fill_between(
-    ddpg_x, ddpg_min_t, ddpg_max_t, facecolor='r', alpha=0.3)
-
-axs[1].plot(ddpg_max_sec, 'r', linewidth=1)
-axs[1].plot(ddpg_min_sec, 'r', linewidth=1)
-axs[1].plot(ddpg_mean_sec, 'r:', label='DDPG', linewidth=2)
-axs[1].fill_between(
-    ddpg_x, ddpg_min_sec, ddpg_max_sec, facecolor='r', alpha=0.3)
-
-axs[2].plot(ddpg_max_rt, 'r', linewidth=1)
-axs[2].plot(ddpg_min_rt, 'r', linewidth=1)
-axs[2].plot(ddpg_mean_rt, 'r:', label='DDPG', linewidth=2)
-axs[2].fill_between(
-    ddpg_x, ddpg_min_rt, ddpg_max_rt, facecolor='r', alpha=0.3)
-
-# ALL
-axs[0].set_title('Total Steps')
-axs[1].set_title('Training Time')
-axs[2].set_title('Wall-clock Time')
-plt.xlabel('Episodes')
-axs[0].legend(loc='upper left')
-
-# Save the plot to a file
-plt.savefig('ddpg_timings_plot.png', dpi=300, bbox_inches='tight')
-
-# Optionally, comment out plt.show() if you don't want to display the plot
-# plt.show()
-
-ddpg_root_dir = os.path.join(RESULTS_DIR, 'ddpg')
-not os.path.exists(ddpg_root_dir) and os.makedirs(ddpg_root_dir)
-
-np.save(os.path.join(ddpg_root_dir, 'x'), ddpg_x)
-
-np.save(os.path.join(ddpg_root_dir, 'max_r'), ddpg_max_r)
-np.save(os.path.join(ddpg_root_dir, 'min_r'), ddpg_min_r)
-np.save(os.path.join(ddpg_root_dir, 'mean_r'), ddpg_mean_r)
-
-np.save(os.path.join(ddpg_root_dir, 'max_s'), ddpg_max_s)
-np.save(os.path.join(ddpg_root_dir, 'min_s'), ddpg_min_s )
-np.save(os.path.join(ddpg_root_dir, 'mean_s'), ddpg_mean_s)
-
-np.save(os.path.join(ddpg_root_dir, 'max_t'), ddpg_max_t)
-np.save(os.path.join(ddpg_root_dir, 'min_t'), ddpg_min_t)
-np.save(os.path.join(ddpg_root_dir, 'mean_t'), ddpg_mean_t)
-
-np.save(os.path.join(ddpg_root_dir, 'max_sec'), ddpg_max_sec)
-np.save(os.path.join(ddpg_root_dir, 'min_sec'), ddpg_min_sec)
-np.save(os.path.join(ddpg_root_dir, 'mean_sec'), ddpg_mean_sec)
-
-np.save(os.path.join(ddpg_root_dir, 'max_rt'), ddpg_max_rt)
-np.save(os.path.join(ddpg_root_dir, 'min_rt'), ddpg_min_rt)
-np.save(os.path.join(ddpg_root_dir, 'mean_rt'), ddpg_mean_rt)
+    ddpg_max_t, ddpg_max_r, ddpg_max_s, \
+    ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
+    ddpg_min_t, ddpg_min_r, ddpg_min_s, \
+    ddpg_min_sec, ddpg_min_rt = np.min(ddpg_results, axis=0).T
+    ddpg_mean_t, ddpg_mean_r, ddpg_mean_s, \
+    ddpg_mean_sec, ddpg_mean_rt = np.mean(ddpg_results, axis=0).T
+    ddpg_x = np.arange(len(ddpg_mean_s))
+    
+    fig, axs = plt.subplots(2, 1, figsize=(15,10), sharey=False, sharex=True)
+    
+    # DDPG
+    axs[0].plot(ddpg_max_r, 'r', linewidth=1)
+    axs[0].plot(ddpg_min_r, 'r', linewidth=1)
+    axs[0].plot(ddpg_mean_r, 'r:', label='DDPG', linewidth=2)
+    axs[0].fill_between(
+        ddpg_x, ddpg_min_r, ddpg_max_r, facecolor='r', alpha=0.3)
+    
+    axs[1].plot(ddpg_max_s, 'r', linewidth=1)
+    axs[1].plot(ddpg_min_s, 'r', linewidth=1)
+    axs[1].plot(ddpg_mean_s, 'r:', label='DDPG', linewidth=2)
+    axs[1].fill_between(
+        ddpg_x, ddpg_min_s, ddpg_max_s, facecolor='r', alpha=0.3)
+    
+    # ALL
+    axs[0].set_title('Moving Avg Reward (Training)')
+    axs[1].set_title('Moving Avg Reward (Evaluation)')
+    plt.xlabel('Episodes')
+    axs[0].legend(loc='upper left')
+    
+    # Save the plot to a file
+    plt.savefig('ddpg_results_plot.png', dpi=300, bbox_inches='tight')
+    
+    # Optionally, you can comment out plt.show() if you don't want to display the plot
+    # plt.show()
+    
+    fig, axs = plt.subplots(3, 1, figsize=(15,15), sharey=False, sharex=True)
+    
+    # DDPG
+    axs[0].plot(ddpg_max_t, 'r', linewidth=1)
+    axs[0].plot(ddpg_min_t, 'r', linewidth=1)
+    axs[0].plot(ddpg_mean_t, 'r:', label='DDPG', linewidth=2)
+    axs[0].fill_between(
+        ddpg_x, ddpg_min_t, ddpg_max_t, facecolor='r', alpha=0.3)
+    
+    axs[1].plot(ddpg_max_sec, 'r', linewidth=1)
+    axs[1].plot(ddpg_min_sec, 'r', linewidth=1)
+    axs[1].plot(ddpg_mean_sec, 'r:', label='DDPG', linewidth=2)
+    axs[1].fill_between(
+        ddpg_x, ddpg_min_sec, ddpg_max_sec, facecolor='r', alpha=0.3)
+    
+    axs[2].plot(ddpg_max_rt, 'r', linewidth=1)
+    axs[2].plot(ddpg_min_rt, 'r', linewidth=1)
+    axs[2].plot(ddpg_mean_rt, 'r:', label='DDPG', linewidth=2)
+    axs[2].fill_between(
+        ddpg_x, ddpg_min_rt, ddpg_max_rt, facecolor='r', alpha=0.3)
+    
+    # ALL
+    axs[0].set_title('Total Steps')
+    axs[1].set_title('Training Time')
+    axs[2].set_title('Wall-clock Time')
+    plt.xlabel('Episodes')
+    axs[0].legend(loc='upper left')
+    
+    # Save the plot to a file
+    plt.savefig('ddpg_timings_plot.png', dpi=300, bbox_inches='tight')
+    
+    # Optionally, comment out plt.show() if you don't want to display the plot
+    # plt.show()
+    
+    ddpg_root_dir = os.path.join(RESULTS_DIR, 'ddpg')
+    not os.path.exists(ddpg_root_dir) and os.makedirs(ddpg_root_dir)
+    
+    np.save(os.path.join(ddpg_root_dir, 'x'), ddpg_x)
+    
+    np.save(os.path.join(ddpg_root_dir, 'max_r'), ddpg_max_r)
+    np.save(os.path.join(ddpg_root_dir, 'min_r'), ddpg_min_r)
+    np.save(os.path.join(ddpg_root_dir, 'mean_r'), ddpg_mean_r)
+    
+    np.save(os.path.join(ddpg_root_dir, 'max_s'), ddpg_max_s)
+    np.save(os.path.join(ddpg_root_dir, 'min_s'), ddpg_min_s )
+    np.save(os.path.join(ddpg_root_dir, 'mean_s'), ddpg_mean_s)
+    
+    np.save(os.path.join(ddpg_root_dir, 'max_t'), ddpg_max_t)
+    np.save(os.path.join(ddpg_root_dir, 'min_t'), ddpg_min_t)
+    np.save(os.path.join(ddpg_root_dir, 'mean_t'), ddpg_mean_t)
+    
+    np.save(os.path.join(ddpg_root_dir, 'max_sec'), ddpg_max_sec)
+    np.save(os.path.join(ddpg_root_dir, 'min_sec'), ddpg_min_sec)
+    np.save(os.path.join(ddpg_root_dir, 'mean_sec'), ddpg_mean_sec)
+    
+    np.save(os.path.join(ddpg_root_dir, 'max_rt'), ddpg_max_rt)
+    np.save(os.path.join(ddpg_root_dir, 'min_rt'), ddpg_min_rt)
+    np.save(os.path.join(ddpg_root_dir, 'mean_rt'), ddpg_mean_rt)
