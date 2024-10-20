@@ -278,38 +278,6 @@ class GasStorageEnv(gym.Env):
             action_space_high[1] = max_h_j_k
     
         return action_space_low, action_space_high   
-        
-    # def compute_action_space_bounds(self, k, d_previous_month, next_month_days):
-    #     # Initialize action space bounds
-    #     action_space_low = np.array([-self.storage_capacity, -self.storage_capacity])
-    #     action_space_high = np.array([self.storage_capacity, self.storage_capacity])
-        
-    #     # Compute bounds for h_S_k
-    #     if k <= 126:
-    #         l_k = -600
-    #     else:
-    #         l_k = -3072
-
-    #     if k <= 148:
-    #         u_k = 2808
-    #     else:
-    #         u_k = 408
-        
-    #     tilde_l_k = max(l_k, -self.storage_level)
-    #     tilde_u_k = min(u_k, self.storage_capacity - self.storage_level)
-        
-    #     action_space_low[0] = tilde_l_k - d_previous_month
-    #     action_space_high[0] = tilde_u_k - d_previous_month
-
-    #     if next_month_days == 0:
-    #         action_space_low[1] = 0.0  # No action on forward market in December
-    #         action_space_high[1] = 0.0 # No action on forward market in December
-    #     else:
-    #         max_h_j_k = self.alpha * self.storage_capacity / next_month_days
-    #         action_space_low[1] = -max_h_j_k # instead of -self.storage_capacity  
-    #         action_space_high[1] = max_h_j_k
-    #     # self.action_space = gym.spaces.Box(low=self.action_space_low, high=self.action_space_high, dtype=np.float32, seed=self.seed_value)
-    #     return action_space_low, action_space_high
     
     def forward_price(self, current_date, S_t, r_t, delta_t):
         # Ensure that sample_spot_price has been called
@@ -563,6 +531,8 @@ class GasStorageEnv(gym.Env):
         
         return np.array([self.step_count, self.storage_level, self.SS_t, self.F_t]), self.reward, is_terminal, is_truncated, {}
     
+    def utility_function(self, W):
+        return W
     # def adjust_h_S_k(self, h_S_k, d_previous_month):
     #     # Compute constraints for h_S_k
     #     k = self.step_count
@@ -598,8 +568,7 @@ class GasStorageEnv(gym.Env):
     #         # One option is to return a large negative value (strong penalty).
     #         # Alternatively, you could add a small epsilon to avoid log(0).
     #         return -np.inf  # Or some very large negative number, like -1e6
-    def utility_function(self, W):
-        return W
+
 
 class FCQV(nn.Module):
     def __init__(self, 
@@ -910,9 +879,9 @@ class DDPG():
         # Create a queue for logging messages
         log_queue = multiprocessing.Queue()
 
-        # Start the logging process
-        logger_process = multiprocessing.Process(target=self.logger_process, args=(log_queue,))
-        logger_process.start()
+        # Start the logger in a separate thread
+        logger_thread = threading.Thread(target=self.logger_process, args=(log_queue,))
+        logger_thread.start()
         
         training_start, last_debug_time = time.time(), float('-inf')
 
@@ -1042,9 +1011,9 @@ class DDPG():
         log_queue.put('Final evaluation score {:.2f}\u00B1{:.2f} in {:.2f}s training time,'
               ' {:.2f}s wall-clock time.\n'.format(
                   final_eval_score, score_std, training_time, wallclock_time))
-        # Ensure logger process is terminated
-        log_queue.put("END")  # Signal the logger process to exit
-        logger_process.join()  # Wait for the logger process to finish
+        # Signal the logger thread to exit
+        log_queue.put("END")
+        logger_thread.join()  # Wait for the logger thread to finish
         
         env.close() ; del env
         self.get_cleaned_checkpoints()
@@ -1129,6 +1098,7 @@ class DDPG():
                    os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
 
 import multiprocessing
+import threading
 
 # Define a function to create the policy model
 def create_policy_model(nS, bounds):
