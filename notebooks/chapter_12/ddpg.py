@@ -773,7 +773,14 @@ class NormalNoiseStrategy():
         noise = np.random.normal(loc=0, scale=noise_scale, size=len(self.high))
         noisy_action = greedy_action + noise
         action = np.clip(noisy_action, self.low, self.high)
-        self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
+        # Create a mask to exclude zero elements in action_range
+        non_zero_mask = action_range != 0.0
+        # Calculate the ratio noise injected only for non-zero elements in action_range
+        ratio_noise_injected = abs((greedy_action - action) / action_range)[non_zero_mask]
+        # Take the mean of the valid ratios (where action_range is non-zero)
+        self.ratio_noise_injected = np.mean(ratio_noise_injected)
+        #print("greedy_action: ",greedy_action, ", action: ", action, ", high: ", self.high, " low", self.low, "ratio_noise_injected: ", self.ratio_noise_injected )
+        #self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
         return action
 
 class DDPG():
@@ -1111,7 +1118,7 @@ def train_ddpg_for_seed(seed):
         'env_name': 'GasStorageEnv',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 10,
+        'max_episodes': 10000,
         'goal_mean_100_reward': np.inf
     }
 
@@ -1145,7 +1152,7 @@ def train_ddpg_for_seed(seed):
     
     replay_buffer_fn = create_replay_buffer
 
-    n_warmup_batches = 1#50
+    n_warmup_batches = 50
     update_target_every_steps = 1
     tau = 0.005
 
