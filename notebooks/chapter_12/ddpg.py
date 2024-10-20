@@ -994,8 +994,7 @@ class DDPG():
                 
         final_eval_score, score_std = self.evaluate(self.online_policy_model, env, n_episodes=100)
         wallclock_time = time.time() - training_start
-        #print('Training complete.')
-        log_queue.put('Training complete.')
+        print('Training complete.')
         print('Final evaluation score {:.2f}\u00B1{:.2f} in {:.2f}s training time,'
               ' {:.2f}s wall-clock time.\n'.format(
                   final_eval_score, score_std, training_time, wallclock_time))
