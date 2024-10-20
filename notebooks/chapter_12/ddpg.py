@@ -1198,7 +1198,7 @@ def train_ddpg_for_seed(seed):
     
     result, final_eval_score, training_time, wallclock_time = agent.train(env, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
     
-    return result, final_eval_score  # Return the results for further analysis
+    return result, final_eval_score, agent  # Return the results for further analysis
 
 # Main execution block
 if __name__ == '__main__':
@@ -1207,7 +1207,7 @@ if __name__ == '__main__':
     best_agent, best_eval_score = None, float('-inf')
 
     for seed in SEEDS:
-        result, final_eval_score = train_ddpg_for_seed(seed)  # Sequential execution
+        result, final_eval_score, agent = train_ddpg_for_seed(seed)  # Sequential execution
         ddpg_results.append(result)
         if final_eval_score > best_eval_score:
             best_eval_score = final_eval_score
