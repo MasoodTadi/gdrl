@@ -875,14 +875,7 @@ class DDPG():
     #def train(self, make_env_fn, make_env_kargs, seed, gamma, 
     def train(self, env, seed, gamma,
               max_minutes, max_episodes, goal_mean_100_reward):
-
-        # Create a queue for logging messages
-        log_queue = multiprocessing.Queue()
-
-        # Start the logger in a separate thread
-        logger_thread = threading.Thread(target=self.logger_process, args=(log_queue,))
-        logger_thread.start()
-        
+       
         training_start, last_debug_time = time.time(), float('-inf')
 
         self.checkpoint_dir = tempfile.mkdtemp()
@@ -988,43 +981,27 @@ class DDPG():
                 elapsed_str, episode-1, total_step, mean_10_reward, std_10_reward, 
                 mean_100_reward, std_100_reward, mean_100_exp_rat, std_100_exp_rat,
                 mean_100_eval_score, std_100_eval_score)
-            #print(debug_message, end='\r', flush=True)
-            log_queue.put(debug_message)  # Send the message to the logger process
+            print(debug_message, end='\r', flush=True)
             
             if reached_debug_time or training_is_over:
-                #print(ERASE_LINE + debug_message, flush=True)
-                log_queue.put(ERASE_LINE + debug_message)
+                print(ERASE_LINE + debug_message, flush=True)
                 last_debug_time = time.time()
             if training_is_over:
-                if reached_max_minutes: log_queue.put(u'--> reached_max_minutes \u2715') #print(u'--> reached_max_minutes \u2715')
-                if reached_max_episodes: log_queue.put(u'--> reached_max_episodes \u2715') #print(u'--> reached_max_episodes \u2715')
-                if reached_goal_mean_reward: log_queue.put(u'--> reached_goal_mean_reward \u2713') #print(u'--> reached_goal_mean_reward \u2713')
+                if reached_max_minutes: print(u'--> reached_max_minutes \u2715')
+                if reached_max_episodes: print(u'--> reached_max_episodes \u2715')
+                if reached_goal_mean_reward: print(u'--> reached_goal_mean_reward \u2713')
                 break
                 
         final_eval_score, score_std = self.evaluate(self.online_policy_model, env, n_episodes=100)
         wallclock_time = time.time() - training_start
         #print('Training complete.')
         log_queue.put('Training complete.')
-        # print('Final evaluation score {:.2f}\u00B1{:.2f} in {:.2f}s training time,'
-        #       ' {:.2f}s wall-clock time.\n'.format(
-        #           final_eval_score, score_std, training_time, wallclock_time))
-        log_queue.put('Final evaluation score {:.2f}\u00B1{:.2f} in {:.2f}s training time,'
+        print('Final evaluation score {:.2f}\u00B1{:.2f} in {:.2f}s training time,'
               ' {:.2f}s wall-clock time.\n'.format(
                   final_eval_score, score_std, training_time, wallclock_time))
-        # Signal the logger thread to exit
-        log_queue.put("END")
-        logger_thread.join()  # Wait for the logger thread to finish
-        
         env.close() ; del env
         self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
-    
-    def logger_process(self, log_queue):
-        while True:
-            message = log_queue.get()
-            if message == "END":
-                break
-            print(message)
             
     def evaluate(self, eval_policy_model, eval_env, n_episodes=1):
         rs = []
@@ -1098,7 +1075,6 @@ class DDPG():
                    os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
 
 import multiprocessing
-import threading
 
 # Define a function to create the policy model
 def create_policy_model(nS, bounds):
