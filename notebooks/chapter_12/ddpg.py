@@ -1202,25 +1202,25 @@ def train_ddpg_for_seed(seed):
 
 # Main execution block
 if __name__ == '__main__':
-    SEEDS = (12, 34, 56, 78, 90)
+    SEEDS = [34]
     ddpg_results = []
     best_agent, best_eval_score = None, float('-inf')
 
-    # for seed in SEEDS:
-    #     result, final_eval_score = train_ddpg_for_seed(seed)  # Sequential execution
-    #     ddpg_results.append(result)
-    #     if final_eval_score > best_eval_score:
-    #         best_eval_score = final_eval_score
-    #         best_agent = agent
-        
-    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-        results = pool.map(train_ddpg_for_seed, SEEDS)  # Parallel execution
-
-    for result, final_eval_score in results:
+    for seed in SEEDS:
+        result, final_eval_score = train_ddpg_for_seed(seed)  # Sequential execution
         ddpg_results.append(result)
         if final_eval_score > best_eval_score:
             best_eval_score = final_eval_score
-            # Here you would also need to save or reference the best agent if needed
+            best_agent = agent
+        
+    # with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+    #     results = pool.map(train_ddpg_for_seed, SEEDS)  # Parallel execution
+
+    # for result, final_eval_score in results:
+    #     ddpg_results.append(result)
+    #     if final_eval_score > best_eval_score:
+    #         best_eval_score = final_eval_score
+    #         # Here you would also need to save or reference the best agent if needed
 
     ddpg_results = np.array(ddpg_results)
     _ = BEEP()
