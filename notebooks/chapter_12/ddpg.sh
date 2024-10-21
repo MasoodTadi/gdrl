@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N ddpg
-#PBS -l select=1:ncpus=16:mem=16gb
+#PBS -l select=1:ncpus=16:mem=32gb
 #PBS -l walltime=72:00:00
 #PBS -o ddpg.o
 #PBS -e ddpg.e
@@ -21,5 +21,5 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
 # Run the Python script
-time python ddpg.py
+time python -u ddpg.py
 
