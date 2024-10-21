@@ -1118,7 +1118,7 @@ def train_ddpg_for_seed(seed):
         'env_name': 'GasStorageEnv',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 10000,
+        'max_episodes': 1000,
         'goal_mean_100_reward': np.inf
     }
 
@@ -1209,7 +1209,7 @@ def train_ddpg_for_seed(seed):
 
 # Main execution block
 if __name__ == '__main__':
-    SEEDS = [34]
+    SEEDS = (12, 34, 56, 78, 90)
     ddpg_results = []
     best_agent, best_eval_score = None, float('-inf')
 
