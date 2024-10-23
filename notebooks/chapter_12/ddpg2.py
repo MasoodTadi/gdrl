@@ -189,10 +189,10 @@ class GasStorageEnv(gym.Env):
         self.seed(self.seed_value)
 
         # Action and Observation spaces
-        action_space_low = np.array([-self.alpha * self.storage_capacity, -2 * self.alpha * self.alpha * self.storage_capacity])
-        action_space_high = np.array([self.alpha * self.storage_capacity,  2 * self.alpha * self.alpha * self.storage_capacity])
+        action_space_low = np.array([0, -1])
+        action_space_high = np.array([1, 1])
         self.action_space = gym.spaces.Box(low=action_space_low, high=action_space_high, dtype=np.float32, seed=self.seed_value)
-        self.observation_space = gym.spaces.Box(low=np.array([0, 0.0, 0.0, 0.0]), high=np.array([self.max_timesteps, self.storage_capacity, 50, 50]), dtype=np.float32,seed=self.seed_value)
+        self.observation_space = gym.spaces.Box(low=np.array([0, 0.0, 0.0, 0.0]), high=np.array([self.max_timesteps, self.storage_capacity, 100, 100]), dtype=np.float32,seed=self.seed_value)
 
         # Initialize state
         #self.reset()
@@ -232,7 +232,7 @@ class GasStorageEnv(gym.Env):
         
         return tau_1, tau_2
 
-    def compute_action_space_bounds(self, k, d_previous_month, next_month_days):
+    def compute_real_actions(self, h_S_k_star, h_j_k_star, d_previous_month, next_month_days):
         # Constants
         max_injection_rate = 1447  # Maximum injection rate (MWh/day)
         max_withdrawal_rate = 1813  # Maximum withdrawal rate (MWh/day)
@@ -257,27 +257,66 @@ class GasStorageEnv(gym.Env):
         u_k = injection_fraction * max_injection_rate
     
         # Initialize action space bounds
-        action_space_low = np.array([0.0 , 0.0])
-        action_space_high = np.array([0.0, 0.0])
+        # action_space_low = np.array([0.0 , 0.0])
+        # action_space_high = np.array([0.0, 0.0])
     
         # Ensure bounds respect current storage level and capacity
         tilde_l_k = max(l_k, -self.storage_level)  # Don't withdraw more than available storage
         tilde_u_k = min(u_k, self.storage_capacity - self.storage_level)  # Don't inject more than available space
+
+        # Map h_k^S* (normalized storage action) to the real-world storage action (h_k^S)
+        h_S_k = h_S_k_star * (tilde_u_k - tilde_l_k) + (tilde_l_k - d_previous_month)
     
         # Update action space bounds based on storage bounds and previous month demand
-        action_space_low[0] = tilde_l_k - d_previous_month
-        action_space_high[0] = tilde_u_k - d_previous_month
+        # action_space_low[0] = tilde_l_k - d_previous_month
+        # action_space_high[0] = tilde_u_k - d_previous_month
     
         # Handle forward market bounds for March (no trading allowed)
         if next_month_days == 0:
-            action_space_low[1] = 0.0  # No action on forward market in December
-            action_space_high[1] = 0.0
+            max_h_j_k = 0.0  # No forward market action allowed in March
+            # action_space_low[1] = 0.0  # No action on forward market in December
+            # action_space_high[1] = 0.0
         else:
             max_h_j_k = self.alpha * self.storage_capacity / next_month_days
-            action_space_low[1] = -max_h_j_k  # Limit forward market actions
-            action_space_high[1] = max_h_j_k
+            # action_space_low[1] = -max_h_j_k  # Limit forward market actions
+            # action_space_high[1] = max_h_j_k
     
-        return action_space_low, action_space_high   
+        # Map h_k^j* (normalized forward market action) to real-world forward market action (h_k^j)
+        h_j_k = h_j_k_star * max_h_j_k
+        # return action_space_low, action_space_high
+        return h_S_k, h_j_k
+        
+    # def compute_action_space_bounds(self, k, d_previous_month, next_month_days):
+    #     # Initialize action space bounds
+    #     action_space_low = np.array([-self.storage_capacity, -self.storage_capacity])
+    #     action_space_high = np.array([self.storage_capacity, self.storage_capacity])
+        
+    #     # Compute bounds for h_S_k
+    #     if k <= 126:
+    #         l_k = -600
+    #     else:
+    #         l_k = -3072
+
+    #     if k <= 148:
+    #         u_k = 2808
+    #     else:
+    #         u_k = 408
+        
+    #     tilde_l_k = max(l_k, -self.storage_level)
+    #     tilde_u_k = min(u_k, self.storage_capacity - self.storage_level)
+        
+    #     action_space_low[0] = tilde_l_k - d_previous_month
+    #     action_space_high[0] = tilde_u_k - d_previous_month
+
+    #     if next_month_days == 0:
+    #         action_space_low[1] = 0.0  # No action on forward market in December
+    #         action_space_high[1] = 0.0 # No action on forward market in December
+    #     else:
+    #         max_h_j_k = self.alpha * self.storage_capacity / next_month_days
+    #         action_space_low[1] = -max_h_j_k # instead of -self.storage_capacity  
+    #         action_space_high[1] = max_h_j_k
+    #     # self.action_space = gym.spaces.Box(low=self.action_space_low, high=self.action_space_high, dtype=np.float32, seed=self.seed_value)
+    #     return action_space_low, action_space_high
     
     def forward_price(self, current_date, S_t, r_t, delta_t):
         # Ensure that sample_spot_price has been called
@@ -374,8 +413,8 @@ class GasStorageEnv(gym.Env):
         self.reward = 0
 
         # Compute action space bounds based on constraints
-        next_month_days = len(self.all_trading_days[self.all_trading_days.month == self.current_date.month+1])
-        self.bounds = self.compute_action_space_bounds(self.step_count, 0, next_month_days)
+        # next_month_days = len(self.all_trading_days[self.all_trading_days.month == self.current_date.month+1])
+        # self.bounds = self.compute_action_space_bounds(self.step_count, 0, next_month_days)
 
         return np.array([self.step_count, self.storage_level, self.S_t, self.F_t]), {}
 
@@ -393,22 +432,17 @@ class GasStorageEnv(gym.Env):
             previous_month_start = self.all_trading_days[self.all_trading_days.month == current_month-1][0]
             previous_month_end = self.all_trading_days[self.all_trading_days.month == current_month-1][-1]
             d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
-        
-        # Action: [h_S_k, h_j_k]
-        h_S_k, h_j_k = action
-        #h_S_k = np.clip(h_S_k, self.bounds[0][0],self.bounds[1][0])
-        #h_j_k = np.clip(h_j_k, self.bounds[0][1],self.bounds[1][1])
 
-
-        # # Adjust actions to satisfy constraints
-        # h_S_k = self.adjust_h_S_k(h_S_k, d_previous_month)
         if current_month == 3:
             next_month_days = 0
         elif current_month == 12:
             next_month_days = len(self.all_trading_days[self.all_trading_days.month == 1])
         else:
             next_month_days = len(self.all_trading_days[self.all_trading_days.month == current_month+1])
-        # h_j_k = self.adjust_h_j_k(h_j_k, next_month_days)
+
+        # Action: [h_S_k, h_j_k]
+        h_S_k_star, h_j_k_star = action
+        h_S_k, h_j_k = self.compute_real_actions(h_S_k_star, h_j_k_star, d_previous_month, next_month_days)
             
         self.forward_actions.append(h_j_k)
 
@@ -506,33 +540,31 @@ class GasStorageEnv(gym.Env):
         # Update constraints of the next action
         ###############################################################
         # Calculate d^{I-1} for delivery quantities
-        current_month = self.current_date.month
-        if current_month == 4:
-            d_previous_month = 0  # April has no deliveries
-        elif current_month == 1:
-            previous_month_start = self.all_trading_days[self.all_trading_days.month == 12][0]
-            previous_month_end = self.all_trading_days[self.all_trading_days.month == 12][-1]
-            d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
-        else:
-            # For other months, calculate d^{I-1}
-            previous_month_start = self.all_trading_days[self.all_trading_days.month == current_month-1][0]
-            previous_month_end = self.all_trading_days[self.all_trading_days.month == current_month-1][-1]
-            d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
-            if np.isnan(d_previous_month):
-                raise ValueError(f"Invalid bounds: d_previous_month={d_previous_month}")
-        if current_month == 3:
-            next_month_days = 0
-        elif current_month == 12:
-            next_month_days = len(self.all_trading_days[self.all_trading_days.month == 1])            
-        else:
-            next_month_days = len(self.all_trading_days[self.all_trading_days.month == current_month+1])
-        # Now we compute the constraints for the next actions
-        self.bounds = self.compute_action_space_bounds(self.step_count, d_previous_month, next_month_days)
+        # current_month = self.current_date.month
+        # if current_month == 4:
+        #     d_previous_month = 0  # April has no deliveries
+        # elif current_month == 1:
+        #     previous_month_start = self.all_trading_days[self.all_trading_days.month == 12][0]
+        #     previous_month_end = self.all_trading_days[self.all_trading_days.month == 12][-1]
+        #     d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
+        # else:
+        #     # For other months, calculate d^{I-1}
+        #     previous_month_start = self.all_trading_days[self.all_trading_days.month == current_month-1][0]
+        #     previous_month_end = self.all_trading_days[self.all_trading_days.month == current_month-1][-1]
+        #     d_previous_month = self.compute_delivery_quantity(previous_month_start, previous_month_end)
+        #     if np.isnan(d_previous_month):
+        #         raise ValueError(f"Invalid bounds: d_previous_month={d_previous_month}")
+        # if current_month == 3:
+        #     next_month_days = 0
+        # elif current_month == 12:
+        #     next_month_days = len(self.all_trading_days[self.all_trading_days.month == 1])            
+        # else:
+        #     next_month_days = len(self.all_trading_days[self.all_trading_days.month == current_month+1])
+        # # Now we compute the constraints for the next actions
+        # self.bounds = self.compute_action_space_bounds(self.step_count, d_previous_month, next_month_days)
         
         return np.array([self.step_count, self.storage_level, self.SS_t, self.F_t]), self.reward, is_terminal, is_truncated, {}
     
-    def utility_function(self, W):
-        return W
     # def adjust_h_S_k(self, h_S_k, d_previous_month):
     #     # Compute constraints for h_S_k
     #     k = self.step_count
@@ -568,6 +600,8 @@ class GasStorageEnv(gym.Env):
     #         # One option is to return a large negative value (strong penalty).
     #         # Alternatively, you could add a small epsilon to avoid log(0).
     #         return -np.inf  # Or some very large negative number, like -1e6
+    def utility_function(self, W):
+        return W
 
 
 class FCQV(nn.Module):
@@ -731,15 +765,11 @@ class ReplayBuffer():
         return self.size
 
 class GreedyStrategy():
-    #def __init__(self, bounds):
-    def __init__(self):
-        #self.low, self.high = bounds
+    def __init__(self, bounds):
+        self.low, self.high = bounds
         self.ratio_noise_injected = 0
 
-    #def select_action(self, model, state):
-    def select_action(self, model, state, bounds):
-        # added line:
-        self.low, self.high = bounds
+    def select_action(self, model, state):
         with torch.no_grad():
             greedy_action = model(state).cpu().detach().data.numpy().squeeze()
 
@@ -747,23 +777,16 @@ class GreedyStrategy():
         return np.reshape(action, self.high.shape)
 
 class NormalNoiseStrategy():
-    #def __init__(self, bounds, exploration_noise_ratio=0.1):
-    def __init__(self, exploration_noise_ratio=0.1):
-        #self.low, self.high = bounds
+    def __init__(self, bounds, exploration_noise_ratio=0.1):
+        self.low, self.high = bounds
         self.exploration_noise_ratio = exploration_noise_ratio
         self.ratio_noise_injected = 0
-    #def select_action(self, model, state, max_exploration=False):
-    def select_action(self, model, state, bounds, max_exploration=False):
-        # 2 added line:
-        self.low, self.high = bounds
-        action_range = self.high - self.low
-            
+        
+    def select_action(self, model, state, max_exploration=False):          
         if max_exploration:
-            #noise_scale = self.high
-            noise_scale = action_range
+            noise_scale = self.high
         else:
-            #noise_scale = self.exploration_noise_ratio * self.high
-            noise_scale = self.exploration_noise_ratio * action_range
+            noise_scale = self.exploration_noise_ratio * self.high
 
         with torch.no_grad():
             greedy_action = model(state).cpu().detach().data.numpy().squeeze()
@@ -773,14 +796,8 @@ class NormalNoiseStrategy():
         noise = np.random.normal(loc=0, scale=noise_scale, size=len(self.high))
         noisy_action = greedy_action + noise
         action = np.clip(noisy_action, self.low, self.high)
-        # Create a mask to exclude zero elements in action_range
-        non_zero_mask = action_range != 0.0
-        # Calculate the ratio noise injected only for non-zero elements in action_range
-        ratio_noise_injected = abs((greedy_action - action) / action_range)[non_zero_mask]
-        # Take the mean of the valid ratios (where action_range is non-zero)
-        self.ratio_noise_injected = np.mean(ratio_noise_injected)
-        #print("greedy_action: ",greedy_action, ", action: ", action, ", high: ", self.high, " low", self.low, "ratio_noise_injected: ", self.ratio_noise_injected )
-        #self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
+        
+        self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
         return action
 
 class DDPG():
@@ -845,13 +862,8 @@ class DDPG():
 
     def interaction_step(self, state, env):
         min_samples = self.replay_buffer.batch_size * self.n_warmup_batches
-        
-        # Added Line:
-        action_bounds = env.bounds
-        
         action = self.training_strategy.select_action(self.online_policy_model, 
                                                       state, 
-                                                      action_bounds,  # Pass dynamic bounds here
                                                       len(self.replay_buffer) < min_samples)
         new_state, reward, is_terminal, is_truncated, info = env.step(action)
         #is_truncated = 'TimeLimit.truncated' in info and info['TimeLimit.truncated']
@@ -861,6 +873,7 @@ class DDPG():
         self.episode_reward[-1] += reward
         self.episode_timestep[-1] += 1
         self.episode_exploration[-1] += self.training_strategy.ratio_noise_injected
+        #print("self.episode_exploration[-1]: ", self.episode_exploration[-1])
         return new_state, is_terminal
     
     def update_networks(self, tau=None):
@@ -882,7 +895,6 @@ class DDPG():
     #def train(self, make_env_fn, make_env_kargs, seed, gamma, 
     def train(self, env, seed, gamma,
               max_minutes, max_episodes, goal_mean_100_reward):
-       
         training_start, last_debug_time = time.time(), float('-inf')
 
         self.checkpoint_dir = tempfile.mkdtemp()
@@ -914,10 +926,10 @@ class DDPG():
                                                          self.policy_optimizer_lr)
 
         self.replay_buffer = self.replay_buffer_fn()
-        #self.training_strategy = training_strategy_fn(action_bounds)
-        self.training_strategy = self.training_strategy_fn() # No action bounds here
-        # self.evaluation_strategy = evaluation_strategy_fn(action_bounds)
-        self.evaluation_strategy = self.evaluation_strategy_fn() # No action bounds here
+        self.training_strategy = training_strategy_fn(action_bounds)
+        # self.training_strategy = self.training_strategy_fn() # No action bounds here
+        self.evaluation_strategy = evaluation_strategy_fn(action_bounds)
+        # self.evaluation_strategy = self.evaluation_strategy_fn() # No action bounds here
                     
         result = np.empty((max_episodes, 5))
         result[:] = np.nan
@@ -989,7 +1001,6 @@ class DDPG():
                 mean_100_reward, std_100_reward, mean_100_exp_rat, std_100_exp_rat,
                 mean_100_eval_score, std_100_eval_score)
             print(debug_message, end='\r', flush=True)
-            
             if reached_debug_time or training_is_over:
                 print(ERASE_LINE + debug_message, flush=True)
                 last_debug_time = time.time()
@@ -1008,7 +1019,7 @@ class DDPG():
         env.close() ; del env
         self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
-            
+    
     def evaluate(self, eval_policy_model, eval_env, n_episodes=1):
         rs = []
         for _ in range(n_episodes):
@@ -1016,10 +1027,7 @@ class DDPG():
             d = False
             rs.append(0)
             for _ in count():
-                # Added Line:
-                action_bounds = eval_env.bounds
-                a = self.evaluation_strategy.select_action(eval_policy_model, s, action_bounds # Pass dynamic bounds her
-                                                          )
+                a = self.evaluation_strategy.select_action(eval_policy_model, s)
                 s, r, d, _, _ = eval_env.step(a)
                 rs[-1] += r
                 if d: break
@@ -1099,12 +1107,12 @@ def create_value_optimizer(net, lr):
     return optim.Adam(net.parameters(), lr=lr)
 
 # Define the training strategy function
-def create_training_strategy():
-    return NormalNoiseStrategy(exploration_noise_ratio=0.1)
+def create_training_strategy(bounds):
+    return NormalNoiseStrategy(bounds, exploration_noise_ratio=0.1)
 
 # Define the evaluation strategy function
-def create_evaluation_strategy():
-    return GreedyStrategy()
+def create_evaluation_strategy(bounds):
+    return GreedyStrategy(bounds)
 
 # Define the replay buffer function
 def create_replay_buffer():
@@ -1261,7 +1269,7 @@ if __name__ == '__main__':
     axs[0].legend(loc='upper left')
     
     # Save the plot to a file
-    plt.savefig('ddpg_results_plot.png', dpi=300, bbox_inches='tight')
+    plt.savefig('ddpg_results_plot_v2.png', dpi=300, bbox_inches='tight')
     
     # Optionally, you can comment out plt.show() if you don't want to display the plot
     # plt.show()
@@ -1295,7 +1303,7 @@ if __name__ == '__main__':
     axs[0].legend(loc='upper left')
     
     # Save the plot to a file
-    plt.savefig('ddpg_timings_plot.png', dpi=300, bbox_inches='tight')
+    plt.savefig('ddpg_timings_plot_v2.png', dpi=300, bbox_inches='tight')
     
     # Optionally, comment out plt.show() if you don't want to display the plot
     # plt.show()
@@ -1303,24 +1311,24 @@ if __name__ == '__main__':
     ddpg_root_dir = os.path.join(RESULTS_DIR, 'ddpg')
     not os.path.exists(ddpg_root_dir) and os.makedirs(ddpg_root_dir)
     
-    np.save(os.path.join(ddpg_root_dir, 'x'), ddpg_x)
+    np.save(os.path.join(ddpg_root_dir, 'x_v2'), ddpg_x)
     
-    np.save(os.path.join(ddpg_root_dir, 'max_r'), ddpg_max_r)
-    np.save(os.path.join(ddpg_root_dir, 'min_r'), ddpg_min_r)
-    np.save(os.path.join(ddpg_root_dir, 'mean_r'), ddpg_mean_r)
+    np.save(os.path.join(ddpg_root_dir, 'max_r_v2'), ddpg_max_r)
+    np.save(os.path.join(ddpg_root_dir, 'min_r_v2'), ddpg_min_r)
+    np.save(os.path.join(ddpg_root_dir, 'mean_r_v2'), ddpg_mean_r)
     
-    np.save(os.path.join(ddpg_root_dir, 'max_s'), ddpg_max_s)
-    np.save(os.path.join(ddpg_root_dir, 'min_s'), ddpg_min_s )
-    np.save(os.path.join(ddpg_root_dir, 'mean_s'), ddpg_mean_s)
+    np.save(os.path.join(ddpg_root_dir, 'max_s_v2'), ddpg_max_s)
+    np.save(os.path.join(ddpg_root_dir, 'min_s_v2'), ddpg_min_s )
+    np.save(os.path.join(ddpg_root_dir, 'mean_s_v2'), ddpg_mean_s)
     
-    np.save(os.path.join(ddpg_root_dir, 'max_t'), ddpg_max_t)
-    np.save(os.path.join(ddpg_root_dir, 'min_t'), ddpg_min_t)
-    np.save(os.path.join(ddpg_root_dir, 'mean_t'), ddpg_mean_t)
+    np.save(os.path.join(ddpg_root_dir, 'max_t_v2'), ddpg_max_t)
+    np.save(os.path.join(ddpg_root_dir, 'min_t_v2'), ddpg_min_t)
+    np.save(os.path.join(ddpg_root_dir, 'mean_t_v2'), ddpg_mean_t)
     
-    np.save(os.path.join(ddpg_root_dir, 'max_sec'), ddpg_max_sec)
-    np.save(os.path.join(ddpg_root_dir, 'min_sec'), ddpg_min_sec)
-    np.save(os.path.join(ddpg_root_dir, 'mean_sec'), ddpg_mean_sec)
+    np.save(os.path.join(ddpg_root_dir, 'max_sec_v2'), ddpg_max_sec)
+    np.save(os.path.join(ddpg_root_dir, 'min_sec_v2'), ddpg_min_sec)
+    np.save(os.path.join(ddpg_root_dir, 'mean_sec_v2'), ddpg_mean_sec)
     
-    np.save(os.path.join(ddpg_root_dir, 'max_rt'), ddpg_max_rt)
-    np.save(os.path.join(ddpg_root_dir, 'min_rt'), ddpg_min_rt)
-    np.save(os.path.join(ddpg_root_dir, 'mean_rt'), ddpg_mean_rt)
+    np.save(os.path.join(ddpg_root_dir, 'max_rt_v2'), ddpg_max_rt)
+    np.save(os.path.join(ddpg_root_dir, 'min_rt_v2'), ddpg_min_rt)
+    np.save(os.path.join(ddpg_root_dir, 'mean_rt_v2'), ddpg_mean_rt)
