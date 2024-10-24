@@ -1126,7 +1126,7 @@ def train_ddpg_for_seed(seed):
         'env_name': 'GasStorageEnv',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 1000,
+        'max_episodes': 300,
         'goal_mean_100_reward': np.inf
     }
 
