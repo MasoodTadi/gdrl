@@ -926,9 +926,9 @@ class DDPG():
                                                          self.policy_optimizer_lr)
 
         self.replay_buffer = self.replay_buffer_fn()
-        self.training_strategy = training_strategy_fn(action_bounds)
+        self.training_strategy = self.training_strategy_fn(action_bounds)
         # self.training_strategy = self.training_strategy_fn() # No action bounds here
-        self.evaluation_strategy = evaluation_strategy_fn(action_bounds)
+        self.evaluation_strategy = self.evaluation_strategy_fn(action_bounds)
         # self.evaluation_strategy = self.evaluation_strategy_fn() # No action bounds here
                     
         result = np.empty((max_episodes, 5))
