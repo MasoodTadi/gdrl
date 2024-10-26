@@ -1162,7 +1162,7 @@ def train_ddpg_for_seed(seed):
 
     n_warmup_batches = 5#50
     update_target_every_steps = 1
-    tau = 0.005
+    tau = 0.001#0.005
 
     env_name, gamma, max_minutes, max_episodes, goal_mean_100_reward = environment_settings.values()
 
