@@ -1185,7 +1185,7 @@ def train_ddpg_for_seed(seed):
     params = {
         'seed': seed,
         'storage_capacity': 100000,
-        'alpha': 1.0,#0.05,
+        'alpha': 0.5,#1.0,#0.05,
         'kappa_r': 0.492828372105622,
         'sigma_r': 0.655898616135014,
         'theta_r': 0.000588276156660185,
