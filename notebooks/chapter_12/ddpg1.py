@@ -1185,7 +1185,7 @@ def train_ddpg_for_seed(seed):
     params = {
         'seed': seed,
         'storage_capacity': 100000,
-        'alpha': 0.1,#0.5,#1.0,#0.05,
+        'alpha': 0.5,#0.1,#0.5,#1.0,#0.05,
         'kappa_r': 0.492828372105622,
         'sigma_r': 0.655898616135014,
         'theta_r': 0.000588276156660185,
@@ -1206,7 +1206,7 @@ def train_ddpg_for_seed(seed):
         'initial_r': 0.15958620269619,
         'initial_delta': 0.106417288572204,
         'initial_V': 0.0249967313173077,
-        'penalty_lambda': 0.1,
+        'penalty_lambda': 0.5,#0.1,
         'bonus_lambda': 0,
     }
     env = GasStorageEnv(params)
