@@ -1108,7 +1108,7 @@ def create_value_optimizer(net, lr):
 
 # Define the training strategy function
 def create_training_strategy(bounds):
-    return NormalNoiseStrategy(bounds, exploration_noise_ratio=0.1)
+    return NormalNoiseStrategy(bounds, exploration_noise_ratio=50.0)
 
 # Define the evaluation strategy function
 def create_evaluation_strategy(bounds):
@@ -1206,7 +1206,7 @@ def train_ddpg_for_seed(seed):
         'initial_r': 0.15958620269619,
         'initial_delta': 0.106417288572204,
         'initial_V': 0.0249967313173077,
-        'penalty_lambda': 0.0,#0.1,#0.01,
+        'penalty_lambda': 0.5,#0.0,#0.1,#0.01,
         'bonus_lambda': 0,
     }
     env = GasStorageEnv(params)
