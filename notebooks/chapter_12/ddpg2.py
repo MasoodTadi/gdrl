@@ -1108,7 +1108,7 @@ def create_value_optimizer(net, lr):
 
 # Define the training strategy function
 def create_training_strategy(bounds):
-    return NormalNoiseStrategy(bounds, exploration_noise_ratio=50.0)
+    return NormalNoiseStrategy(bounds, exploration_noise_ratio=0.5)
 
 # Define the evaluation strategy function
 def create_evaluation_strategy(bounds):
@@ -1116,7 +1116,7 @@ def create_evaluation_strategy(bounds):
 
 # Define the replay buffer function
 def create_replay_buffer():
-    return ReplayBuffer(max_size=100000, batch_size=256)
+    return ReplayBuffer(max_size=1000000, batch_size=256)#max_size=100000
 
 
 # Define a function to run the DDPG training for a single seed
