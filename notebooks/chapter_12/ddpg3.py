@@ -990,8 +990,9 @@ class DDPG():
             training_is_over = reached_max_minutes or \
                                reached_max_episodes or \
                                reached_goal_mean_reward
+            el 00:00:25, ep 0000, ts 0000247, ar 10 -38758233.9±000.0, 100 -38758233.9±000.0, ex 100 0.3±0.0, ev -56105486.0±000.0
             elapsed_str = time.strftime("%H:%M:%S", time.gmtime(time.time() - training_start))
-            debug_message = 'el {}, ep {:04}, ts {:07}, '
+            debug_message = 'el {}, ep {:06}, ts {:12}, '
             debug_message += 'ar 10 {:05.1f}\u00B1{:05.1f}, '
             debug_message += '100 {:05.1f}\u00B1{:05.1f}, '
             debug_message += 'ex 100 {:02.1f}\u00B1{:02.1f}, '
@@ -1108,7 +1109,7 @@ def create_value_optimizer(net, lr):
 
 # Define the training strategy function
 def create_training_strategy(bounds):
-    return NormalNoiseStrategy(bounds, exploration_noise_ratio=0.1)
+    return NormalNoiseStrategy(bounds, exploration_noise_ratio=0.5)#0.1)
 
 # Define the evaluation strategy function
 def create_evaluation_strategy(bounds):
@@ -1116,7 +1117,7 @@ def create_evaluation_strategy(bounds):
 
 # Define the replay buffer function
 def create_replay_buffer():
-    return ReplayBuffer(max_size=100000, batch_size=256)
+    return ReplayBuffer(max_size=1000000, batch_size=2560)#(max_size=100000, batch_size=256)
 
 
 # Define a function to run the DDPG training for a single seed
@@ -1206,7 +1207,7 @@ def train_ddpg_for_seed(seed):
         'initial_r': 0.15958620269619,
         'initial_delta': 0.106417288572204,
         'initial_V': 0.0249967313173077,
-        'penalty_lambda': 1.0,#0.5,#0.1,
+        'penalty_lambda': 0.5,#0.1,
         'bonus_lambda': 0,
     }
     env = GasStorageEnv(params)
