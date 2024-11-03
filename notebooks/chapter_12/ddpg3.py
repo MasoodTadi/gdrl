@@ -992,7 +992,7 @@ class DDPG():
                                reached_goal_mean_reward
             el 00:00:25, ep 0000, ts 0000247, ar 10 -38758233.9±000.0, 100 -38758233.9±000.0, ex 100 0.3±0.0, ev -56105486.0±000.0
             elapsed_str = time.strftime("%H:%M:%S", time.gmtime(time.time() - training_start))
-            debug_message = 'el {}, ep {:06}, ts {:12}, '
+            debug_message = 'el {}, ep {:04}, ts {:07}, '
             debug_message += 'ar 10 {:05.1f}\u00B1{:05.1f}, '
             debug_message += '100 {:05.1f}\u00B1{:05.1f}, '
             debug_message += 'ex 100 {:02.1f}\u00B1{:02.1f}, '
