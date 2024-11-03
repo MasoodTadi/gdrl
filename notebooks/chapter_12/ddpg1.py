@@ -1108,7 +1108,7 @@ def create_value_optimizer(net, lr):
 
 # Define the training strategy function
 def create_training_strategy(bounds):
-    return NormalNoiseStrategy(bounds, exploration_noise_ratio=1.0)#0.1)
+    return NormalNoiseStrategy(bounds, exploration_noise_ratio=0.5)#1.0)#0.1)
 
 # Define the evaluation strategy function
 def create_evaluation_strategy(bounds):
