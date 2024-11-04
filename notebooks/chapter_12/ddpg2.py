@@ -1116,7 +1116,7 @@ def create_evaluation_strategy(bounds):
 
 # Define the replay buffer function
 def create_replay_buffer():
-    return ReplayBuffer(max_size=10000, batch_size=256)#max_size=100000, , batch_size=256
+    return ReplayBuffer(max_size=1000000, batch_size=2560)#max_size=100000, , batch_size=256
 
 
 # Define a function to run the DDPG training for a single seed
