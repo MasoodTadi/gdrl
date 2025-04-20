@@ -1,9 +1,9 @@
 #!/bin/bash
-#PBS -N ddpg_projection
+#PBS -N projection
 #PBS -l select=1:ncpus=16:mem=32gb
 #PBS -l walltime=96:00:00
-#PBS -o ddpg_projection.o
-#PBS -e ddpg_projection.e
+#PBS -o projection.o
+#PBS -e projection.e
 
 # Print the current working directory (optional)
 pwd
@@ -21,4 +21,4 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
 # Run the Python script
-time python -u ddpg_projection.py
+time python -u projection.py
