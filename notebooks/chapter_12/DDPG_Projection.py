@@ -1095,6 +1095,7 @@ for seed in SEEDS:
         'max_episodes':10,#10000
         'goal_mean_100_reward': np.inf#-15#-150
     }
+    
     noise_std = 0.5#0.3#0.1#0.3
     projection_layer = create_projection_layer(n=12)
     # policy_model_fn = lambda nS, bounds: FCDP(nS, bounds, hidden_dims=(256,256))
