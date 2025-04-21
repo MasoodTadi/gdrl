@@ -230,8 +230,13 @@ class MultiprocessEnv(object):
                 worker_end.send((obs, reward, done, info))
             elif cmd == 'step':
                 # worker_end.send(env.step(**kwargs))
-                obs, reward, terminated, truncated, info = env.step(**kwargs)
-                done = terminated or truncated
+                try:
+                    obs, reward, terminated, truncated, info = env.step(kwargs['action'])
+                    done = terminated or truncated
+                    worker_end.send((obs, reward, done, info))
+                except Exception as e:
+                    print(f"[Worker {rank}] step() failed with: {e}")
+                    worker_end.send((None, 0.0, True, {}))  # Dummy fallback
             elif cmd == '_past_limit':
                 worker_end.send(env._elapsed_steps >= env._max_episode_steps)
             else:
@@ -308,7 +313,8 @@ class EpisodeBuffer():
         states = envs.reset()
 
         worker_rewards = np.zeros(shape=(n_workers, self.max_episode_steps), dtype=np.float32)
-        worker_exploratory = np.zeros(shape=(n_workers, self.max_episode_steps), dtype=np.bool)
+        # worker_exploratory = np.zeros(shape=(n_workers, self.max_episode_steps), dtype=np.bool)
+        worker_exploratory = np.zeros(shape=(n_workers, self.max_episode_steps), dtype=bool)
         worker_steps = np.zeros(shape=(n_workers), dtype=np.uint16)
         worker_seconds = np.array([time.time(),] * n_workers, dtype=np.float64)
 
