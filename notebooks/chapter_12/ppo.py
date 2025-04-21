@@ -230,13 +230,10 @@ class MultiprocessEnv(object):
                 worker_end.send((obs, reward, done, info))
             elif cmd == 'step':
                 # worker_end.send(env.step(**kwargs))
-                try:
-                    obs, reward, terminated, truncated, info = env.step(kwargs['action'])
-                    done = terminated or truncated
-                    worker_end.send((obs, reward, done, info))
-                except Exception as e:
-                    print(f"[Worker {rank}] step() failed with: {e}")
-                    worker_end.send((None, 0.0, True, {}))  # Dummy fallback
+                action = kwargs['action']  # Extract the actual action
+                obs, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                worker_end.send((obs, reward, done, info))
             elif cmd == '_past_limit':
                 worker_end.send(env._elapsed_steps >= env._max_episode_steps)
             else:
