@@ -224,9 +224,14 @@ class MultiprocessEnv(object):
         while True:
             cmd, kwargs = worker_end.recv()
             if cmd == 'reset':
-                worker_end.send(env.reset(**kwargs))
+                # worker_end.send(env.reset(**kwargs))
+                obs, _ = env.reset(**kwargs)
+                worker_end.send(obs)
+                worker_end.send((obs, reward, done, info))
             elif cmd == 'step':
-                worker_end.send(env.step(**kwargs))
+                # worker_end.send(env.step(**kwargs))
+                obs, reward, terminated, truncated, info = env.step(**kwargs)
+                done = terminated or truncated
             elif cmd == '_past_limit':
                 worker_end.send(env._elapsed_steps >= env._max_episode_steps)
             else:
