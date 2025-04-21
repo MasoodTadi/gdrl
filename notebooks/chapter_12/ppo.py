@@ -277,7 +277,8 @@ class EpisodeBuffer():
             shape=np.concatenate(((self.max_episodes, self.max_episode_steps), self.state_dim)), dtype=np.float64)
         self.states_mem[:] = np.nan
 
-        self.actions_mem = np.empty(shape=(self.max_episodes, self.max_episode_steps), dtype=np.uint8)
+        # self.actions_mem = np.empty(shape=(self.max_episodes, self.max_episode_steps), dtype=np.uint8)
+        self.actions_mem = np.empty(shape=(self.max_episodes, self.max_episode_steps), dtype=np.float32)
         self.actions_mem[:] = np.nan
 
         self.returns_mem = np.empty(shape=(self.max_episodes,self.max_episode_steps), dtype=np.float32)
