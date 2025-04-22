@@ -217,12 +217,10 @@ class MultiprocessEnv(object):
         results = []
         for rank in range(self.n_workers):
             parent_end, _ = self.pipes[rank]
-            # o, r, d, i = parent_end.recv()
-            o, r, d, truncated, i = parent_end.recv()
+            o, r, d, i = parent_end.recv()
             results.append((o,
                             float(r),
-                            # float(d),
-                            float(d or truncated),
+                            float(d),
                             i))
         return [np.stack(block).squeeze() for block in np.array(results).T]
 
