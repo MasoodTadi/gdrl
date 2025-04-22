@@ -628,17 +628,18 @@ class FCDP(nn.Module):
 
         except Exception as e:
             print("❌ Solver failed with error:", str(e))
-            print("🚨 Proposed (unprojected) action X_p:", X_p.detach().cpu().numpy().squeeze())
             try:
                 X_proj, = projection_layer(
                     X_p, V_t, V_min, effective_V_max, I_max, W_max, lock_mask,
                     solver_args={"eps": 1e-1, "max_iters": 5000, "verbose": False}
                 )
                 X_proj = torch.clamp(X_proj, min=-W_max, max=I_max)
+                print("🚨 Proposed (projected) action X_proj:", X_proj.detach().cpu().numpy().squeeze())
         
             except Exception as e2:
                 print("🚨 Fallback also failed. Returning unprojected X_p.")
                 X_proj = torch.clamp(X_p, min=-W_max, max=I_max)
+                print("🚨 Proposed (unprojected) action X_proj:", X_proj.detach().cpu().numpy().squeeze())
             # print(month)
             # print(V_t)
         # X_proj, = self.projection_layer(X_p, V_t, V_min, effective_V_max, I_max, W_max, lock_mask,

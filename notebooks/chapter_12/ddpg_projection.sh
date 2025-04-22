@@ -23,4 +23,4 @@ cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 # Run the Python script
 # time python -u projection.py
 # time python -u projection.py > output.log 2>&1
-time python -u projection.py 2>&1 | tee output.log
+time python -u projection.py | tee output.log
