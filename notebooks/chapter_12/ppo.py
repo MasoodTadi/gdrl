@@ -209,22 +209,40 @@ class MultiprocessEnv(object):
         obs = [parent_end.recv()[0] for parent_end, _ in self.pipes]  # ← grab just obs
         return np.stack(obs)
 
+    # def step(self, actions):
+    #     assert len(actions) == self.n_workers
+    #     [self.send_msg(
+    #         ('step', {'action':actions[rank]}), 
+    #         rank) for rank in range(self.n_workers)]
+    #     results = []
+    #     for rank in range(self.n_workers):
+    #         parent_end, _ = self.pipes[rank]
+    #         # o, r, d, i = parent_end.recv()
+    #         o, r, d, truncated, i = parent_end.recv()
+    #         results.append((o,
+    #                         float(r),
+    #                         #float(d),
+    #                         float(d or truncated),
+    #                         i))
+    #     return [np.stack(block).squeeze() for block in np.array(results).T]
     def step(self, actions):
         assert len(actions) == self.n_workers
-        [self.send_msg(
-            ('step', {'action':actions[rank]}), 
-            rank) for rank in range(self.n_workers)]
-        results = []
+        [self.send_msg(('step', {'action': actions[rank]}), rank) for rank in range(self.n_workers)]
+    
+        obs_list, reward_list, done_list, info_list = [], [], [], []
         for rank in range(self.n_workers):
             parent_end, _ = self.pipes[rank]
-            # o, r, d, i = parent_end.recv()
-            o, r, d, truncated, i = parent_end.recv()
-            results.append((o,
-                            float(r),
-                            #float(d),
-                            float(d or truncated),
-                            i))
-        return [np.stack(block).squeeze() for block in np.array(results).T]
+            obs, reward, terminated, truncated, info = parent_end.recv()
+            done = terminated or truncated
+            obs_list.append(obs)
+            reward_list.append(reward)
+            done_list.append(done)
+            info_list.append(info)
+    
+        obs_array = np.stack(obs_list)
+        reward_array = np.array(reward_list, dtype=np.float32)
+        done_array = np.array(done_list, dtype=np.float32)
+        return obs_array, reward_array, done_array, info_list
 
     def close(self, **kwargs):
         self.broadcast_msg(('close', kwargs))
