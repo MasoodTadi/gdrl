@@ -765,7 +765,7 @@ class PPO():
         for _ in range(n_episodes):
             # s, d = eval_env.reset(), False
             s, _ = eval_env.reset()
-            d  False
+            d = False
             rs.append(0)
             for _ in count():
                 if greedy:
