@@ -21,4 +21,5 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
 # Run the Python script
-time python -u ppo.py
+# time python -u ppo.py
+time python -u ppo.py | tee output_ppo.log
