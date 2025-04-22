@@ -210,7 +210,7 @@ class MultiprocessEnv(object):
             parent_end, _ = self.pipes[rank]
             # o, r, d, i = parent_end.recv()
             o, r, d, tuncated, i = parent_end.recv()
-            results.append((o,elif cmd == 'step':
+            results.append((o,
                             float(r),
                             # float(d),
                             float(d or truncated),
