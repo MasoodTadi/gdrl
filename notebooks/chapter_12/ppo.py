@@ -226,23 +226,9 @@ class MultiprocessEnv(object):
         while True:
             cmd, kwargs = worker_end.recv()
             if cmd == 'reset':
-                # worker_end.send(env.reset(**kwargs))
-                obs, _ = env.reset(**kwargs)
-                worker_end.send(obs)
-                worker_end.send((obs, reward, done, info))
+                worker_end.send(env.reset(**kwargs))
             elif cmd == 'step':
-                # worker_end.send(env.step(**kwargs))
-                try:
-                    action = kwargs['action']
-                    obs, reward, terminated, truncated, info = env.step(action)
-                    done = terminated or truncated
-                    worker_end.send((obs, reward, done, info))
-                except Exception as e:
-                    print(f"[Worker {rank}] Error during step(): {e}", flush=True)
-                    import traceback
-                    traceback.print_exc()
-                    # Send dummy values back to avoid crashing the whole pipeline
-                    worker_end.send((None, 0.0, True, {'error': str(e)}))
+                worker_end.send(env.step(**kwargs))
             elif cmd == '_past_limit':
                 worker_end.send(env._elapsed_steps >= env._max_episode_steps)
             else:
