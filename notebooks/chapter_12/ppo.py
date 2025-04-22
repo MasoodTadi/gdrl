@@ -208,10 +208,12 @@ class MultiprocessEnv(object):
         results = []
         for rank in range(self.n_workers):
             parent_end, _ = self.pipes[rank]
-            o, r, d, i = parent_end.recv()
-            results.append((o,
+            # o, r, d, i = parent_end.recv()
+            o, r, d, tuncated, i = parent_end.recv()
+            results.append((o,elif cmd == 'step':
                             float(r),
-                            float(d),
+                            # float(d),
+                            float(d or truncated),
                             i))
         return [np.stack(block).squeeze() for block in np.array(results).T]
 
@@ -761,16 +763,20 @@ class PPO():
     def evaluate(self, eval_model, eval_env, n_episodes=1, greedy=True):
         rs = []
         for _ in range(n_episodes):
-            s, d = eval_env.reset(), False
+            # s, d = eval_env.reset(), False
+            s, _ = eval_env.reset()
+            d  False
             rs.append(0)
             for _ in count():
                 if greedy:
                     a = eval_model.select_greedy_action(s)
                 else: 
                     a = eval_model.select_action(s)
-                s, r, d, _ = eval_env.step(a)
+                # s, r, d, _ = eval_env.step(a)
+                s, r, d, truncated, _ = eval_env.step(a)
                 rs[-1] += r
-                if d: break
+                # if d: break
+                if d or truncated: break
         return np.mean(rs), np.std(rs)
 
     def get_cleaned_checkpoints(self, n_checkpoints=4):
