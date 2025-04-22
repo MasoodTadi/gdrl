@@ -796,14 +796,12 @@ class DDPG():
               max_minutes, max_episodes, goal_mean_100_reward):
         training_start, last_debug_time = time.time(), float('-inf')
 
-        # Set up safe and persistent checkpoint directory
-        scratch_dir = os.environ.get("SCRATCHDIR", os.path.expanduser("~/ddpg_checkpoints"))
-        self.checkpoint_dir = os.path.join(scratch_dir, "checkpoints")
+        # Safe and persistent checkpoint directory in home
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.checkpoint_dir = os.path.expanduser(f"~/ddpg_checkpoints/run_{timestamp}")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        
-        # Add these debug prints here
+    
         print(f"Running on: {os.uname().nodename}")
-        print(f"SCRATCHDIR = {os.environ.get('SCRATCHDIR')}")
         print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
         
         # self.checkpoint_dir = tempfile.mkdtemp()
