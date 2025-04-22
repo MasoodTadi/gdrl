@@ -1121,7 +1121,7 @@ for seed in SEEDS:
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0003#0.0005#0.003
 
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, start_std=noise_std, final_std=1e-6, decay_steps=environment_settings['max_episodes']*12*0.9) # for the case noise is inside FCDP
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, start_std=noise_std, final_std=1e-6, decay_steps=environment_settings['max_episodes']*12*0.8) # for the case noise is inside FCDP
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.3)
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
