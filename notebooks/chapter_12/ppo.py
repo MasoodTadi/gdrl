@@ -192,13 +192,22 @@ class MultiprocessEnv(object):
         [w.start() for w in self.workers]
         self.dones = {rank:False for rank in range(self.n_workers)}
 
-    def reset(self, ranks=None, **kwargs):
-        if not (ranks is None):
-            [self.send_msg(('reset', {}), rank) for rank in ranks]            
-            return np.stack([parent_end.recv() for rank, (parent_end, _) in enumerate(self.pipes) if rank in ranks])
+    # def reset(self, ranks=None, **kwargs):
+    #     if not (ranks is None):
+    #         [self.send_msg(('reset', {}), rank) for rank in ranks]            
+    #         return np.stack([parent_end.recv() for rank, (parent_end, _) in enumerate(self.pipes) if rank in ranks])
 
-        self.broadcast_msg(('reset', kwargs))
-        return np.stack([parent_end.recv() for parent_end, _ in self.pipes])
+    #     self.broadcast_msg(('reset', kwargs))
+    #     return np.stack([parent_end.recv() for parent_end, _ in self.pipes])
+    def reset(self, ranks=None, **kwargs):
+    if ranks is not None:
+        [self.send_msg(('reset', kwargs), rank) for rank in ranks]
+        obs = [parent_end.recv()[0] for rank, (parent_end, _) in enumerate(self.pipes) if rank in ranks]
+        return np.stack(obs)
+
+    self.broadcast_msg(('reset', kwargs))
+    obs = [parent_end.recv()[0] for parent_end, _ in self.pipes]  # ← grab just obs
+    return np.stack(obs)
 
     def step(self, actions):
         assert len(actions) == self.n_workers
@@ -209,7 +218,7 @@ class MultiprocessEnv(object):
         for rank in range(self.n_workers):
             parent_end, _ = self.pipes[rank]
             # o, r, d, i = parent_end.recv()
-            o, r, d, tuncated, i = parent_end.recv()
+            o, r, d, truncated, i = parent_end.recv()
             results.append((o,
                             float(r),
                             # float(d),
