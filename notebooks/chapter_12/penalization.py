@@ -14,6 +14,7 @@ from torch.distributions import Normal
 import numpy as np
 import pandas as pd
 from scipy.interpolate import CubicSpline
+from scipy.optimize import linprog
 from IPython.display import display
 from collections import namedtuple, deque
 import matplotlib.pyplot as plt
