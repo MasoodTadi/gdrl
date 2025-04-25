@@ -2,35 +2,47 @@ import multiprocessing as mp
 import time
 
 # Worker process function
-def worker(child_conn):
+def worker(rank, child_conn):
     while True:
         msg = child_conn.recv()  # Wait for a message from parent
-        print(f"[Worker] Got message: {msg}")
+        print(f"[Worker {rank}] Got message: {msg}")
 
         if msg == "stop":
-            child_conn.send("Worker shutting down.")
+            child_conn.send(f"[Worker {rank}] Shutting down.")
             break
         else:
-            reply = f"Processed: {msg}"
+            reply = f"[Worker {rank}] Processed: {msg}"
             child_conn.send(reply)
 
 # Main process
 if __name__ == "__main__":
-    parent_conn, child_conn = mp.Pipe()
+    num_workers = 3
+    pipes = []
+    processes = []
 
-    # Create and start worker process
-    process = mp.Process(target=worker, args=(child_conn,))
-    process.start()
+    for rank in range(num_workers):
+        parent_conn, child_conn = mp.Pipe()
+        process = mp.Process(target=worker, args=(rank, child_conn))
+        process.start()
+        pipes.append(parent_conn)
+        processes.append(process)
 
-    # Send messages to worker
-    parent_conn.send("Hello Worker")
-    print("[Parent] Received:", parent_conn.recv())
+    # Send messages to each worker
+    for i, conn in enumerate(pipes):
+        conn.send(f"Hello from parent to worker {i}")
+    
+    for i, conn in enumerate(pipes):
+        print(f"[Parent] Received from worker {i}:", conn.recv())
 
-    parent_conn.send("Another task")
-    print("[Parent] Received:", parent_conn.recv())
+    # Send stop signal
+    for conn in pipes:
+        conn.send("stop")
 
-    parent_conn.send("stop")
-    print("[Parent] Received:", parent_conn.recv())
+    for i, conn in enumerate(pipes):
+        print(f"[Parent] Received shutdown from worker {i}:", conn.recv())
 
-    process.join()
-    print("[Parent] Worker has shut down.")
+    # Wait for all workers to finish
+    for p in processes:
+        p.join()
+
+    print("[Parent] All workers have shut down.")
