@@ -74,8 +74,8 @@ class TTFGasStorageEnv(gym.Env):
 
         # === OBSERVATION SPACE ===
         self.observation_space = spaces.Box(
-            low=np.concatenate(([0], [-np.inf] * 12, [self.V_min])),
-            high=np.concatenate(([12], [np.inf] * 12, [self.V_max])),
+            low=np.concatenate(([0], [-np.inf] * 12, [self.V_min])).astype(np.float32),
+            high=np.concatenate(([12], [np.inf] * 12, [self.V_max])).astype(np.float32),
             shape=(14,),
             dtype=np.float32,
             seed=self.seed_value
