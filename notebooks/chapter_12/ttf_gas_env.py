@@ -113,6 +113,11 @@ class TTFGasStorageEnv(gym.Env):
         self.delta_t = self.initial_delta
         self.v_t = self.initial_v
         self.F_t = self.compute_futures_curve()
+        self.S_trajectory = [self.S_t]
+        self.r_trajectory = [self.r_t]
+        self.delta_trajectory = [self.delta_t]
+        self.v_trajectory = [self.v_t]
+        self.F_trajectory = [self.F_t]
         self.V_t = self.V_0
         return np.concatenate(([self.month], self.F_t, [self.V_t]), dtype=np.float32), {}
 
