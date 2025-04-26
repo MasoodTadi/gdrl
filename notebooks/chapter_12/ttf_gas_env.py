@@ -55,9 +55,22 @@ class TTFGasStorageEnv(gym.Env):
         # 2 -> 0.0
         # 3 -> +0.2
         # 4 -> +0.4
-        self.action_meanings = [-0.4, -0.2, 0.0, 0.2, 0.4]
+        self.action_meanings_list = []
+        
+        for i in range(self.n_months):
+            if i == 0:
+                # Month 0 only allows 0.0, +0.2, +0.4
+                self.action_meanings_list.append([0.0, 0.2, 0.4])
+            elif i == self.n_months - 1:
+                # Month 11 only allows -0.4, -0.2, 0.0
+                self.action_meanings_list.append([-0.4, -0.2, 0.0])
+            else:
+                # Middle months allow full range
+                self.action_meanings_list.append([-0.4, -0.2, 0.0, 0.2, 0.4])
 
-        self.action_space = spaces.MultiDiscrete(self._build_action_nvec())
+        # For each month, number of valid actions = length of that list
+        nvec = [len(meaning) for meaning in self.action_meanings_list]
+        self.action_space = spaces.MultiDiscrete(nvec)
 
         # === OBSERVATION SPACE ===
         self.observation_space = spaces.Box(
@@ -69,18 +82,6 @@ class TTFGasStorageEnv(gym.Env):
         )
 
         self.reset()
-
-    def _build_action_nvec(self):
-        """Build the action space vector for MultiDiscrete"""
-        nvec = []
-        for i in range(self.n_months):
-            if i == 0:
-                nvec.append(3)  # Only 0, +0.2, +0.4 allowed
-            elif i == self.n_months - 1:
-                nvec.append(3)  # Only -0.4, -0.2, 0.0 allowed
-            else:
-                nvec.append(5)  # All 5 options allowed
-        return np.array(nvec, dtype=np.int32)
 
     def seed(self, seed=None):
         if seed is not None:
@@ -121,10 +122,12 @@ class TTFGasStorageEnv(gym.Env):
         self.V_t = self.V_0
         return np.concatenate(([self.month], self.F_t, [self.V_t]), dtype=np.float32), {}
 
-    def step(self, action):
+    def step(self, action_code):
         
         # Validate action dimension
-        assert len(action) == self.n_months, "Action must have length = n_months"
+        assert len(action_code) == self.n_months, "Action must have length = n_months"
+
+        action = np.array([self.action_meanings_list[i][action_code[i]] for i in range(self.n_months)])
         
         # last_action = -self.V_t - action.cumsum()[-1]
         # action = np.concatenate((action, np.array([last_action], dtype=np.float32)))
