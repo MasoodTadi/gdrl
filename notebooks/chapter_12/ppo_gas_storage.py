@@ -694,7 +694,11 @@ class PPO():
         self.value_model = self.value_model_fn(nS)
         self.value_optimizer = self.value_optimizer_fn(self.value_model, self.value_optimizer_lr)
 
-        self.episode_buffer = self.episode_buffer_fn(nS, self.gamma, self.tau,
+        # self.episode_buffer = self.episode_buffer_fn(nS, self.gamma, self.tau,
+        #                                              self.n_workers, 
+        #                                              self.max_buffer_episodes,
+        #                                              self.max_buffer_episode_steps)
+        self.episode_buffer = self.episode_buffer_fn(nS, nA.shape, self.gamma, self.tau,
                                                      self.n_workers, 
                                                      self.max_buffer_episodes,
                                                      self.max_buffer_episode_steps)
@@ -970,113 +974,3 @@ for seed in SEEDS:
         best_agent = agent
 ppo_results = np.array(ppo_results)
 _ = BEEP()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-params = {
-    'n_months': 12,
-    'V_min': 0,
-    'V_max': 1,
-    'V_0': 0,
-    'W_max': 0.4,
-    'I_max': 0.4,
-    'kappa_r': 0.492828372105622,
-    'sigma_r': 0.655898616135014,
-    'theta_r': 0.000588276156660185,
-    'kappa_delta': 1.17723166341479,
-    'sigma_delta': 1.03663918307669,
-    'theta_delta': -0.213183673388138,
-    'sigma_s': 0.791065501973918,
-    'rho_1': 0.899944474373156,
-    'rho_2': -0.306810849087325,
-    'sigma_v': 0.825941396204049,
-    'theta_v': 0.0505685591761352,
-    'theta': 0.00640705687096142,
-    'kappa_v': 2.36309244973169,
-    'lam': 0.638842070975342,
-    'sigma_j': 0.032046147726045,
-    'mu_j': 0.0137146728855484,
-    'initial_spot_price': np.exp(2.9479),
-    'initial_r': 0.15958620269619,
-    'initial_delta': 0.106417288572204,
-    'initial_v': 0.0249967313173077,
-    'penalty_lambda1': 0,#100,#2.0,#0.2,#10.0,
-    'penalty_lambda2': 0,#1000,#10.0,#1.0,#50.0,
-    'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
-                                 -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
-                                 -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
-}
-
-make_env_fn = get_make_env_fn(params)  
-
-envs = MultiprocessEnv(
-    make_env_fn=make_env_fn,  
-    make_env_kargs={},        # ← nothing needed, no kwargs here
-    seed=42,
-    n_workers=4
-)
-
-env = TTFGasStorageEnv(params)
-
-obs = envs.reset()
-print("Initial Observations:")
-print(obs)
-n_steps = 5
-
-for step in range(n_steps):
-    print(f"\n--- Step {step + 1} ---")
-
-    random_actions = []
-    for _ in range(envs.n_workers):
-        random_action_indices = np.array([
-            np.random.randint(0, env.action_space.nvec[i]) for i in range(env.n_months)
-        ], dtype=np.int32)
-        random_actions.append(random_action_indices)
-    random_actions = np.stack(random_actions)
-
-    # === Pretty print random actions ===
-    print("Random Actions (indices):")
-    for worker_idx in range(envs.n_workers):
-        action_indices = random_actions[worker_idx]
-        action_str = ", ".join(f"{a:2d}" for a in action_indices)
-        print(f"Worker {worker_idx}: [{action_str}]")
-
-    print("\nRandom Actions (real values):")
-    for worker_idx in range(envs.n_workers):
-        real_action = [
-            env.action_meanings_list[i][random_actions[worker_idx][i]] for i in range(env.n_months)
-        ]
-        real_action_str = ", ".join(f"{val:+.2f}" for val in real_action)
-        print(f"Worker {worker_idx}: [{real_action_str}]")
-envs.close()
