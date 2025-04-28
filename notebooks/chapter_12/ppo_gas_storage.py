@@ -864,9 +864,9 @@ for seed in SEEDS:
     environment_settings = {
         # 'env_name': 'LunarLander-v3',
         'gamma': 0.99,
-        'max_minutes': 20,
-        'max_episodes': 2000,
-        'goal_mean_100_reward': 250
+        'max_minutes': np.inf,
+        'max_episodes': 20000,
+        'goal_mean_100_reward': np.inf
     }
 
     policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256))
@@ -893,7 +893,7 @@ for seed in SEEDS:
     
     entropy_loss_weight = 0.01
     tau = 0.97
-    n_workers = 8
+    n_workers = 32#8
 
     params = {
         'n_months': 12,
@@ -924,8 +924,8 @@ for seed in SEEDS:
         'initial_r': 0.15958620269619,
         'initial_delta': 0.106417288572204,
         'initial_v': 0.0249967313173077,
-        'penalty_lambda1': 2.0,#0.2,#2.0,#0.2,#10.0,
-        'penalty_lambda2': 10.,#1,#10.0,#1.0,#50.0,
+        'penalty_lambda1': 20.0,#0.2,#2.0,#0.2,#10.0,
+        'penalty_lambda2': 100.,#1,#10.0,#1.0,#50.0,
         'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
                                      -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
                                      -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
