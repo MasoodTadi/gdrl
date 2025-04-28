@@ -194,7 +194,7 @@ class EpisodeBuffer():
         self.max_episodes = max_episodes
         self.max_episode_steps = max_episode_steps
 
-        self._truncated_fn = np.vectorize(lambda x: 'TimeLimit.truncated' in x and x['TimeLimit.truncated'])
+        # self._truncated_fn = np.vectorize(lambda x: 'TimeLimit.truncated' in x and x['TimeLimit.truncated'])
         self.discounts = np.logspace(
             0, max_episode_steps+1, num=max_episode_steps+1, base=gamma, endpoint=False, dtype=np.float64)
         self.tau_discounts = np.logspace(
@@ -248,8 +248,7 @@ class EpisodeBuffer():
                 values = value_model(states)
 
             # next_states, rewards, terminals, infos = envs.step(actions)
-            next_states, rewards, terminateds, truncateds, infos = envs.step(actions)
-            terminals = np.logical_or(terminateds, truncateds)
+            next_states, rewards, terminals, truncateds, infos = envs.step(actions)
             self.states_mem[self.current_ep_idxs, worker_steps] = states
             self.actions_mem[self.current_ep_idxs, worker_steps] = actions
             self.logpas_mem[self.current_ep_idxs, worker_steps] = logpas
@@ -260,66 +259,121 @@ class EpisodeBuffer():
             for w_idx in range(self.n_workers):
                 if worker_steps[w_idx] + 1 == self.max_episode_steps:
                     terminals[w_idx] = 1
-                    infos[w_idx]['TimeLimit.truncated'] = True
+                    # infos[w_idx]['TimeLimit.truncated'] = True
+                    truncateds[w_idx] = True  # <- directly mark as truncated
 
-            if terminals.sum():
-                idx_terminals = np.flatnonzero(terminals)
-                next_values = np.zeros(shape=(self.n_workers))
-                truncated = self._truncated_fn(infos)
-                if truncated.sum():
-                    idx_truncated = np.flatnonzero(truncated)
-                    with torch.no_grad():
-                        next_values[idx_truncated] = value_model(
-                            next_states[idx_truncated]).cpu().numpy()
+            #Adding these lines
+            next_values = np.zeros(shape=(self.n_workers,), dtype=np.float32)
+            idx_truncated = np.flatnonzero(truncateds)
+            if idx_truncated.size > 0:
+                with torch.no_grad():
+                    next_values[idx_truncated] = value_model(next_states[idx_truncated]).cpu().numpy()
+                    
+            # if terminals.sum():
+            #     idx_terminals = np.flatnonzero(terminals)
+            #     next_values = np.zeros(shape=(self.n_workers))
+            #     truncated = self._truncated_fn(infos)
+            #     if truncated.sum():
+            #         idx_truncated = np.flatnonzero(truncated)
+            #         with torch.no_grad():
+            #             next_values[idx_truncated] = value_model(
+            #                 next_states[idx_truncated]).cpu().numpy()
 
             states = next_states
             worker_steps += 1
 
+            # if terminals.sum():
+            #     new_states = envs.reset(ranks=idx_terminals)
+            #     states[idx_terminals] = new_states
+
+            #     for w_idx in range(self.n_workers):
+            #         if w_idx not in idx_terminals:
+            #             continue
+
+            #         e_idx = self.current_ep_idxs[w_idx]
+            #         T = worker_steps[w_idx]
+            #         self.episode_steps[e_idx] = T
+            #         self.episode_reward[e_idx] = worker_rewards[w_idx, :T].sum()
+            #         self.episode_exploration[e_idx] = worker_exploratory[w_idx, :T].mean()
+            #         self.episode_seconds[e_idx] = time.time() - worker_seconds[w_idx]
+
+            #         ep_rewards = np.concatenate(
+            #             (worker_rewards[w_idx, :T], [next_values[w_idx]]))
+            #         ep_discounts = self.discounts[:T+1]
+            #         ep_returns = np.array(
+            #             [np.sum(ep_discounts[:T+1-t] * ep_rewards[t:]) for t in range(T)])
+            #         self.returns_mem[e_idx, :T] = ep_returns
+
+            #         ep_states = self.states_mem[e_idx, :T]
+            #         with torch.no_grad():
+            #             ep_values = torch.cat((value_model(ep_states),
+            #                                    torch.tensor([next_values[w_idx]],
+            #                                                 device=value_model.device,
+            #                                                 dtype=torch.float32)))
+            #         np_ep_values = ep_values.view(-1).cpu().numpy()
+            #         ep_tau_discounts = self.tau_discounts[:T]
+            #         deltas = ep_rewards[:-1] + self.gamma * np_ep_values[1:] - np_ep_values[:-1]
+            #         gaes = np.array(
+            #             [np.sum(self.tau_discounts[:T-t] * deltas[t:]) for t in range(T)])
+            #         self.gaes_mem[e_idx, :T] = gaes
+
+            #         worker_exploratory[w_idx, :] = 0
+            #         worker_rewards[w_idx, :] = 0
+            #         worker_steps[w_idx] = 0
+            #         worker_seconds[w_idx] = time.time()
+
+            #         new_ep_id = max(self.current_ep_idxs) + 1
+            #         if new_ep_id >= self.max_episodes:
+            #             buffer_full = True
+            #             break
+
+            #         self.current_ep_idxs[w_idx] = new_ep_id
             if terminals.sum():
+                idx_terminals = np.flatnonzero(terminals)
+    
                 new_states = envs.reset(ranks=idx_terminals)
                 states[idx_terminals] = new_states
-
-                for w_idx in range(self.n_workers):
-                    if w_idx not in idx_terminals:
-                        continue
-
+    
+                for w_idx in idx_terminals:
                     e_idx = self.current_ep_idxs[w_idx]
                     T = worker_steps[w_idx]
+    
                     self.episode_steps[e_idx] = T
                     self.episode_reward[e_idx] = worker_rewards[w_idx, :T].sum()
                     self.episode_exploration[e_idx] = worker_exploratory[w_idx, :T].mean()
                     self.episode_seconds[e_idx] = time.time() - worker_seconds[w_idx]
-
-                    ep_rewards = np.concatenate(
-                        (worker_rewards[w_idx, :T], [next_values[w_idx]]))
-                    ep_discounts = self.discounts[:T+1]
+    
+                    ep_rewards = np.concatenate((worker_rewards[w_idx, :T], [next_values[w_idx]]))
                     ep_returns = np.array(
-                        [np.sum(ep_discounts[:T+1-t] * ep_rewards[t:]) for t in range(T)])
+                        [np.sum(self.discounts[:T+1-t] * ep_rewards[t:]) for t in range(T)]
+                    )
                     self.returns_mem[e_idx, :T] = ep_returns
-
+    
                     ep_states = self.states_mem[e_idx, :T]
                     with torch.no_grad():
-                        ep_values = torch.cat((value_model(ep_states),
-                                               torch.tensor([next_values[w_idx]],
-                                                            device=value_model.device,
-                                                            dtype=torch.float32)))
+                        ep_values = torch.cat((
+                            value_model(ep_states),
+                            torch.tensor([next_values[w_idx]], device=value_model.device, dtype=torch.float32)
+                        ))
                     np_ep_values = ep_values.view(-1).cpu().numpy()
-                    ep_tau_discounts = self.tau_discounts[:T]
                     deltas = ep_rewards[:-1] + self.gamma * np_ep_values[1:] - np_ep_values[:-1]
                     gaes = np.array(
-                        [np.sum(self.tau_discounts[:T-t] * deltas[t:]) for t in range(T)])
+                        [np.sum(self.tau_discounts[:T-t] * deltas[t:]) for t in range(T)]
+                    )
                     self.gaes_mem[e_idx, :T] = gaes
-
-                    worker_exploratory[w_idx, :] = 0
+    
+                    # Reset worker
                     worker_rewards[w_idx, :] = 0
+                    worker_exploratory[w_idx, :] = 0
                     worker_steps[w_idx] = 0
                     worker_seconds[w_idx] = time.time()
-
+    
+                    # Assign new episode id
                     new_ep_id = max(self.current_ep_idxs) + 1
                     if new_ep_id >= self.max_episodes:
                         buffer_full = True
                         break
-
+    
                     self.current_ep_idxs[w_idx] = new_ep_id
 
         ep_idxs = self.episode_steps > 0
