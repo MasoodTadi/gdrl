@@ -927,7 +927,7 @@ for seed in SEEDS:
                                      -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
     }
     
-    env_name, gamma, max_minutes, \
+    gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
     agent = PPO(policy_model_fn, 
                 policy_model_max_grad_norm,
