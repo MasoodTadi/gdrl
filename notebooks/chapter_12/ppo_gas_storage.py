@@ -893,7 +893,7 @@ for seed in SEEDS:
     
     entropy_loss_weight = 0.01
     tau = 0.97
-    n_workers = 32#8
+    n_workers = 16#8
 
     params = {
         'n_months': 12,
