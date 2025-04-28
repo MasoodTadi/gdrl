@@ -385,10 +385,12 @@ params = {
                                  -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
 }
 
+make_env_fn = get_make_env_fn(params)  
+
 envs = MultiprocessEnv(
-    make_env_fn=get_make_env_fn,
-    make_env_kargs=params,   # Nothing needed here, already inside `make_env_fn`
-    seed=42, 
+    make_env_fn=make_env_fn,  
+    make_env_kargs={},        # ← nothing needed, no kwargs here
+    seed=42,
     n_workers=4
 )
 
