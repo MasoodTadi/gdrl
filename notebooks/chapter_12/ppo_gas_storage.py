@@ -426,7 +426,4 @@ for step in range(n_steps):
         ]
         real_action_str = ", ".join(f"{val:+.2f}" for val in real_action)
         print(f"Worker {worker_idx}: [{real_action_str}]")
-
-    # Now step environments
-    obs, rewards, dones, infos = envs.step(random_actions)
 envs.close()
