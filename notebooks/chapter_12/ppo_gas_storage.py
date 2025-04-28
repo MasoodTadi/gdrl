@@ -423,7 +423,7 @@ class FCCA(nn.Module):
         # Important: output layer should output sum of all action logits
         self.output_layer = nn.Linear(hidden_dims[-1], sum(output_dim))
 
-        self.output_dim = output_dim  # (n1, n2, ..., n12)
+        self.output_dim = tuple(output_dim)  # (n1, n2, ..., n12)
 
         device = "cpu"
         if torch.cuda.is_available():
