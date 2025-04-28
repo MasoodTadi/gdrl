@@ -883,7 +883,7 @@ for seed in SEEDS:
     value_clip_range = float('inf')
     value_stopping_mse = 25
 
-    episode_buffer_fn = lambda sd, g, t, nw, me, mes: EpisodeBuffer(sd, g, t, nw, me, mes)
+    episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
     max_buffer_episodes = 16
     max_buffer_episode_steps = 1000
     
