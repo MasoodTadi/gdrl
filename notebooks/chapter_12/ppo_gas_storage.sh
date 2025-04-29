@@ -21,7 +21,7 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
 # Now loop over values
-for ENTROPY in 0.01 0.005 0.001
+for ENTROPY in 0.0005 0.0001 0.00005
 do
     echo "Running with ENTROPY_LOSS_WEIGHT=$ENTROPY"
     
