@@ -881,7 +881,8 @@ for seed in SEEDS:
     policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256))
     policy_model_max_grad_norm = float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    policy_optimizer_lr = 0.0003
+    # policy_optimizer_lr = 0.0003
+    policy_optimizer_lr = float(os.environ.get('POLICY_LR', 0.0003))
     policy_optimization_epochs = 80
     policy_sample_ratio = 0.8
     policy_clip_range = 0.1
@@ -890,7 +891,8 @@ for seed in SEEDS:
     value_model_fn = lambda nS: FCV(nS, hidden_dims=(256,256))
     value_model_max_grad_norm = float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    value_optimizer_lr = 0.0005
+    # value_optimizer_lr = 0.0005
+    value_optimizer_lr = float(os.environ.get('VALUE_LR', 0.0005))
     value_optimization_epochs = 80
     value_sample_ratio = 0.8
     value_clip_range = float('inf')

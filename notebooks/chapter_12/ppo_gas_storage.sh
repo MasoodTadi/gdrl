@@ -21,11 +21,16 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
 # Now loop over values
-for ENTROPY in 0.0005 0.0001 0.00005
-do
-    echo "Running with ENTROPY_LOSS_WEIGHT=$ENTROPY"
-    
-    export ENTROPY_LOSS_WEIGHT=$ENTROPY
-    
-    time python -u ppo_gas_storage.py | tee output_ppo_gas_storage_entropy_${ENTROPY}.log
+for POLICY_LR in 0.0003 0.0001 0.00005; do
+     for VALUE_LR in 0.0005 0.0003 0.0001; do
+         echo "Running with POLICY_LR=$POLICY_LR, VALUE_LR=$VALUE_LR"
+         export POLICY_LR
+         export VALUE_LR
+         RUN_ID="run_$(date +%Y%m%d_%H%M%S)_plr${POLICY_LR}_vlr${VALUE_LR}"
+         LOG="log_${RUN_ID}.txt"
+         # time python -u ppo_gas_storage.py | tee output_ppo_gas_storage_entropy_${ENTROPY}.log
+         time python -u ppo_gas_storage.py
+         echo "Finished $RUN_ID"
+         sleep 5
+    done
 done
