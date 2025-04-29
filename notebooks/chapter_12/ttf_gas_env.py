@@ -128,6 +128,7 @@ class TTFGasStorageEnv(gym.Env):
         assert len(action_code) == self.n_months, "Action must have length = n_months"
 
         action = np.array([self.action_meanings_list[i][action_code[i]] for i in range(self.n_months)])
+        print(action)
         
         # last_action = -self.V_t - action.cumsum()[-1]
         # action = np.concatenate((action, np.array([last_action], dtype=np.float32)))
