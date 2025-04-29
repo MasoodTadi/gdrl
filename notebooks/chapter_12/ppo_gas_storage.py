@@ -866,13 +866,15 @@ class PPO():
 
 ppo_results = []
 best_agent, best_eval_score = None, float('-inf')
-SEEDS = [90]
+# SEEDS = (12, 34, 56, 78, 90)
+SEEDS = (78, 90)
+# SEEDS = [90]
 for seed in SEEDS:
     environment_settings = {
         # 'env_name': 'LunarLander-v3',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 3_000,
+        'max_episodes': 10_000,
         'goal_mean_100_reward': np.inf
     }
 
@@ -898,7 +900,8 @@ for seed in SEEDS:
     max_buffer_episodes = 256#16
     max_buffer_episode_steps = 12#1000
     
-    entropy_loss_weight = 0.001
+    # entropy_loss_weight = 0.001#0.01
+    entropy_loss_weight = float(os.environ.get('ENTROPY_LOSS_WEIGHT', 0.01))
     tau = 0.97
     n_workers = 64#8
 

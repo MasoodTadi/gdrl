@@ -20,5 +20,12 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 # Change to the working directory
 cd /storage/praha1/home/tadim/gdrl/notebooks/chapter_12
 
-# Run the Python script
-time python -u ppo_gas_storage.py | tee output_ppo_gas_storage.log
+# Now loop over values
+for ENTROPY in 0.01 0.005 0.001
+do
+    echo "Running with ENTROPY_LOSS_WEIGHT=$ENTROPY"
+    
+    export ENTROPY_LOSS_WEIGHT=$ENTROPY
+    
+    time python -u ppo_gas_storage.py | tee output_ppo_gas_storage_entropy_${ENTROPY}.log
+done
