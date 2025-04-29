@@ -670,8 +670,15 @@ class PPO():
     def train(self, make_envs_fn, make_env_fn, make_env_kargs, seed, gamma, 
               max_minutes, max_episodes, goal_mean_100_reward):
         training_start, last_debug_time = time.time(), float('-inf')
-
-        self.checkpoint_dir = tempfile.mkdtemp()
+        
+        # Safe and persistent checkpoint directory in home
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.checkpoint_dir = os.path.expanduser(f"~/ddpg_checkpoints/run_{timestamp}")
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+    
+        print(f"Running on: {os.uname().nodename}")
+        print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
+        # self.checkpoint_dir = tempfile.mkdtemp()
         self.make_envs_fn = make_envs_fn
         self.make_env_fn = make_env_fn
         self.make_env_kargs = make_env_kargs
@@ -865,7 +872,7 @@ for seed in SEEDS:
         # 'env_name': 'LunarLander-v3',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 5,
+        'max_episodes': 100_000,
         'goal_mean_100_reward': np.inf
     }
 
@@ -888,12 +895,12 @@ for seed in SEEDS:
     value_stopping_mse = 25
 
     episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
-    max_buffer_episodes = 16
-    max_buffer_episode_steps = 1000
+    max_buffer_episodes = 256#16
+    max_buffer_episode_steps = 12#1000
     
     entropy_loss_weight = 0.01
     tau = 0.97
-    n_workers = 16#8
+    n_workers = 64#8
 
     params = {
         'n_months': 12,
