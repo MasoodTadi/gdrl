@@ -872,7 +872,7 @@ for seed in SEEDS:
         # 'env_name': 'LunarLander-v3',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 100_000,
+        'max_episodes': 3_000,
         'goal_mean_100_reward': np.inf
     }
 
