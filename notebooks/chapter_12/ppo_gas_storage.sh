@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N ppo_gas_storage
-#PBS -l select=1:ncpus=64:mem=32gb 
+#PBS -l select=1:ncpus=128:mem=32gb 
 #PBS -l walltime=96:00:00
 #PBS -o ppo_gas_storage.o
 #PBS -e ppo_gas_storage.e

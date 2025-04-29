@@ -895,12 +895,12 @@ for seed in SEEDS:
     value_stopping_mse = 25
 
     episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
-    max_buffer_episodes = 256#16
+    max_buffer_episodes = 512#16
     max_buffer_episode_steps = 12#1000
     
     entropy_loss_weight = 0.01
     tau = 0.97
-    n_workers = 64#8
+    n_workers = 128#8
 
     params = {
         'n_months': 12,
