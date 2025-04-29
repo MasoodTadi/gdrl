@@ -898,7 +898,7 @@ for seed in SEEDS:
     max_buffer_episodes = 256#16
     max_buffer_episode_steps = 12#1000
     
-    entropy_loss_weight = 0.005
+    entropy_loss_weight = 0.001
     tau = 0.97
     n_workers = 64#8
 
