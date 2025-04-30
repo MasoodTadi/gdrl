@@ -881,29 +881,32 @@ for seed in SEEDS:
     policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256))
     policy_model_max_grad_norm = float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    # policy_optimizer_lr = 0.0003
-    policy_optimizer_lr = float(os.environ.get('POLICY_LR', 0.0003))
+    policy_optimizer_lr = 0.0003
+    # policy_optimizer_lr = float(os.environ.get('POLICY_LR', 0.0003))
     policy_optimization_epochs = 80
     policy_sample_ratio = 0.8
-    policy_clip_range = 0.1
-    policy_stopping_kl = 0.02
+    # policy_clip_range = 0.1
+    policy_clip_range = float(os.environ.get('POLICY_CLIP', 0.1))
+    # policy_stopping_kl = 0.02
+    policy_stopping_kl = float(os.environ.get('POLICY_STOPPING', 0.02))
 
     value_model_fn = lambda nS: FCV(nS, hidden_dims=(256,256))
     value_model_max_grad_norm = float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    # value_optimizer_lr = 0.0005
-    value_optimizer_lr = float(os.environ.get('VALUE_LR', 0.0005))
+    value_optimizer_lr = 0.0005
+    # value_optimizer_lr = float(os.environ.get('VALUE_LR', 0.0005))
     value_optimization_epochs = 80
     value_sample_ratio = 0.8
-    value_clip_range = float('inf')
+    # value_clip_range = float('inf')
+    value_clip_range = float(os.environ.get('VALUE_CLIP', float('inf')))
     value_stopping_mse = 25
 
     episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
     max_buffer_episodes = 256#16
     max_buffer_episode_steps = 12#1000
     
-    # entropy_loss_weight = 0.001#0.01
-    entropy_loss_weight = float(os.environ.get('ENTROPY_LOSS_WEIGHT', 0.0001))
+    entropy_loss_weight = 0.0001#0.01
+    # entropy_loss_weight = float(os.environ.get('ENTROPY_LOSS_WEIGHT', 0.0001))
     tau = 0.97
     n_workers = 64#8
 
