@@ -898,7 +898,8 @@ for seed in SEEDS:
     value_optimization_epochs = 80
     value_sample_ratio = 0.8
     # value_clip_range = float('inf')
-    value_clip_range = float(os.environ.get('VALUE_CLIP', float('inf')))
+    vc = os.environ.get('VALUE_CLIP', 'inf')
+    value_clip_range = float(vc if vc != 'inf' else float('inf'))
     value_stopping_mse = 25
 
     episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
