@@ -867,12 +867,12 @@ class PPO():
 ppo_results = []
 best_agent, best_eval_score = None, float('-inf')
 # SEEDS = (12, 34, 56, 78, 90)
-SEEDS = (78, 90)
-# SEEDS = [90]
+# SEEDS = (78, 90)
+SEEDS = [90]
 for seed in SEEDS:
     environment_settings = {
         # 'env_name': 'LunarLander-v3',
-        'gamma': 0.99,
+        'gamma': 1.00,
         'max_minutes': np.inf,
         'max_episodes': 10_000,
         'goal_mean_100_reward': np.inf
@@ -885,10 +885,10 @@ for seed in SEEDS:
     # policy_optimizer_lr = float(os.environ.get('POLICY_LR', 0.0003))
     policy_optimization_epochs = 80
     policy_sample_ratio = 0.8
-    # policy_clip_range = 0.1
-    policy_clip_range = float(os.environ.get('POLICY_CLIP', 0.1))
-    # policy_stopping_kl = 0.02
-    policy_stopping_kl = float(os.environ.get('POLICY_STOPPING', 0.02))
+    policy_clip_range = 0.2#0.1
+    # policy_clip_range = float(os.environ.get('POLICY_CLIP', 0.1))
+    policy_stopping_kl = 0.02
+    # policy_stopping_kl = float(os.environ.get('POLICY_STOPPING', 0.02))
 
     value_model_fn = lambda nS: FCV(nS, hidden_dims=(256,256))
     value_model_max_grad_norm = float('inf')
@@ -897,9 +897,9 @@ for seed in SEEDS:
     # value_optimizer_lr = float(os.environ.get('VALUE_LR', 0.0005))
     value_optimization_epochs = 80
     value_sample_ratio = 0.8
-    # value_clip_range = float('inf')
-    vc = os.environ.get('VALUE_CLIP', 'inf')
-    value_clip_range = float(vc if vc != 'inf' else float('inf'))
+    value_clip_range = float('inf')
+    # vc = os.environ.get('VALUE_CLIP', 'inf')
+    # value_clip_range = float(vc if vc != 'inf' else float('inf'))
     value_stopping_mse = 25
 
     episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
@@ -940,8 +940,8 @@ for seed in SEEDS:
         'initial_r': 0.15958620269619,
         'initial_delta': 0.106417288572204,
         'initial_v': 0.0249967313173077,
-        'penalty_lambda1': 20.0,#0.2,#2.0,#0.2,#10.0,
-        'penalty_lambda2': 100.,#1,#10.0,#1.0,#50.0,
+        'penalty_lambda1': 0.0,#0.2,#2.0,#0.2,#10.0,
+        'penalty_lambda2': 0.,#1,#10.0,#1.0,#50.0,
         'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
                                      -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
                                      -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
