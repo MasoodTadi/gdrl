@@ -520,15 +520,19 @@ class FCV(nn.Module):
     def __init__(self,
                  input_dim,
                  hidden_dims=(32,32), 
-                 activation_fc=F.relu):
+                 activation_fc=F.relu,
+                dropout_p=0.1):
         super(FCV, self).__init__()
         self.activation_fc = activation_fc
+        self.dropout_p = dropout_p
 
         self.input_layer = nn.Linear(input_dim[0], hidden_dims[0])
         self.hidden_layers = nn.ModuleList()
+        self.dropouts = nn.ModuleList()
         for i in range(len(hidden_dims)-1):
             hidden_layer = nn.Linear(hidden_dims[i], hidden_dims[i+1])
             self.hidden_layers.append(hidden_layer)
+            self.dropouts.append(nn.Dropout(p=self.dropout_p))  # Add corresponding dropout
         self.output_layer = nn.Linear(hidden_dims[-1], 1)
 
         device = "cpu"
@@ -548,8 +552,11 @@ class FCV(nn.Module):
     def forward(self, states):
         x = self._format(states)
         x = self.activation_fc(self.input_layer(x))
-        for hidden_layer in self.hidden_layers:
-            x = self.activation_fc(hidden_layer(x))
+        # for hidden_layer in self.hidden_layers:
+        #     x = self.activation_fc(hidden_layer(x))
+        for layer, dropout in zip(self.hidden_layers, self.dropouts):
+            x = self.activation_fc(layer(x))
+            x = dropout(x)
         return self.output_layer(x).squeeze()
 
 class PPO():
@@ -874,26 +881,26 @@ for seed in SEEDS:
         # 'env_name': 'LunarLander-v3',
         'gamma': 1.00,
         'max_minutes': np.inf,
-        'max_episodes': 1_000_000,
-        'goal_mean_100_reward': np.inf
+        'max_episodes': 20_000,
+        'goal_mean_100_reward': 4.0
     }
 
     policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256))
     policy_model_max_grad_norm = float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    policy_optimizer_lr = 0.0003
+    policy_optimizer_lr = 0.0001#0.0003
     # policy_optimizer_lr = float(os.environ.get('POLICY_LR', 0.0003))
     policy_optimization_epochs = 80
     policy_sample_ratio = 0.8
-    policy_clip_range = 0.2#0.1
+    policy_clip_range = 0.05#0.2
     # policy_clip_range = float(os.environ.get('POLICY_CLIP', 0.1))
-    policy_stopping_kl = 0.02
+    policy_stopping_kl = 0.005#0.02
     # policy_stopping_kl = float(os.environ.get('POLICY_STOPPING', 0.02))
 
     value_model_fn = lambda nS: FCV(nS, hidden_dims=(256,256))
     value_model_max_grad_norm = float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    value_optimizer_lr = 0.0005
+    value_optimizer_lr = 0.0001#0.0005
     # value_optimizer_lr = float(os.environ.get('VALUE_LR', 0.0005))
     value_optimization_epochs = 80
     value_sample_ratio = 0.8
@@ -906,7 +913,7 @@ for seed in SEEDS:
     max_buffer_episodes = 256#16
     max_buffer_episode_steps = 12#1000
     
-    entropy_loss_weight = 0.0001#0.01
+    entropy_loss_weight = 0.0005#0.0001#0.01
     # entropy_loss_weight = float(os.environ.get('ENTROPY_LOSS_WEIGHT', 0.0001))
     tau = 0.97
     n_workers = 64#8
