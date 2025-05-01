@@ -882,10 +882,10 @@ for seed in SEEDS:
         'gamma': 1.00,
         'max_minutes': np.inf,
         'max_episodes': 100_000,
-        'goal_mean_100_reward': 4.0
+        'goal_mean_100_reward': 20
     }
 
-    policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(128,128)) #hidden_dims=(256,256)
+    policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256)) 
     policy_model_max_grad_norm = float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.0001#0.0003
@@ -897,7 +897,7 @@ for seed in SEEDS:
     policy_stopping_kl = 0.005#0.02
     # policy_stopping_kl = float(os.environ.get('POLICY_STOPPING', 0.02))
 
-    value_model_fn = lambda nS: FCV(nS, hidden_dims=(128,128)) #hidden_dims=(256,256)
+    value_model_fn = lambda nS: FCV(nS, hidden_dims=(256,256))
     value_model_max_grad_norm = float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0001#0.0005
