@@ -881,7 +881,7 @@ for seed in SEEDS:
         # 'env_name': 'LunarLander-v3',
         'gamma': 1.00,
         'max_minutes': np.inf,
-        'max_episodes': 20_000,
+        'max_episodes': 100_000,
         'goal_mean_100_reward': 4.0
     }
 
@@ -910,7 +910,7 @@ for seed in SEEDS:
     value_stopping_mse = 25
 
     episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
-    max_buffer_episodes = 256#16
+    max_buffer_episodes = 512#256#16
     max_buffer_episode_steps = 12#1000
     
     entropy_loss_weight = 0.0005#0.0001#0.01
