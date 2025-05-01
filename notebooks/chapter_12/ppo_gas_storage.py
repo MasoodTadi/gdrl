@@ -875,15 +875,15 @@ class PPO():
 ppo_results = []
 best_agent, best_eval_score = None, float('-inf')
 # SEEDS = (12, 34, 56, 78, 90)
-# SEEDS = (78, 90)
-SEEDS = [90]
+SEEDS = (56, 78, 90)
+# SEEDS = [90]
 for seed in SEEDS:
     environment_settings = {
         # 'env_name': 'LunarLander-v3',
         'gamma': 1.00,
         'max_minutes': np.inf,
         'max_episodes': 100_000,
-        'goal_mean_100_reward': 20
+        'goal_mean_100_reward': 50
     }
 
     policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256)) 
@@ -998,15 +998,8 @@ for seed in SEEDS:
         best_agent = agent
 ppo_results = np.array(ppo_results)
 _ = BEEP()
-# Save the best policy model after BEEP
-best_checkpoints = best_agent.get_cleaned_checkpoints()
-last_checkpoint_ep = max(best_checkpoints.keys())
-best_model_path = best_checkpoints[last_checkpoint_ep]
-
-final_save_path = os.path.expanduser("~/ppo_best_optimal_policy.pth")
-torch.save(torch.load(best_model_path), final_save_path)
-
-print(f"\n Optimal policy saved to: {final_save_path}")
+# Save the best policy model 
+torch.save(best_agent.policy_model.state_dict(), "ppo_best_policy.pth")
 
 ppo_max_t, ppo_max_r, ppo_max_s, \
 ppo_max_sec, ppo_max_rt = np.max(ppo_results, axis=0).T
@@ -1292,3 +1285,16 @@ V_IE = np.mean(CF_IE)
 
 # Display results
 print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE:.4f}")
+
+plt.style.use('default') 
+plt.figure(figsize=(14, 6))
+plt.plot(CF_IE, color='grey', label="Realized RL Value")
+plt.plot(CF_IE_Rolling, color='black', label="Rolling Intrinsic Value")
+plt.axhline(V_IE, color='red', linestyle='--', linewidth=2, label="Average Value")
+plt.axhline(1.962, color='blue', linestyle='--', linewidth=2, label="Intrinsic Value")
+plt.xlabel("Simulation ID")
+plt.ylabel("Realized Reservoir Value")
+plt.title("Reinforcement Learning Value Calculation")
+plt.legend()
+plt.grid(True)
+plt.savefig("PPO_RIV_Comparison.png")
