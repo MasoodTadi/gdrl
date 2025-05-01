@@ -49,6 +49,7 @@ from IPython.display import display, HTML
 import cvxpy as cp
 
 import datetime
+from scipy.optimize import linprog
 
 LEAVE_PRINT_EVERY_N_SECS = 300
 ERASE_LINE = '\x1b[2K'
@@ -997,3 +998,297 @@ for seed in SEEDS:
         best_agent = agent
 ppo_results = np.array(ppo_results)
 _ = BEEP()
+# Save the best policy model after BEEP
+best_checkpoints = best_agent.get_cleaned_checkpoints()
+last_checkpoint_ep = max(best_checkpoints.keys())
+best_model_path = best_checkpoints[last_checkpoint_ep]
+
+final_save_path = os.path.expanduser("~/ppo_best_optimal_policy.pth")
+torch.save(torch.load(best_model_path), final_save_path)
+
+print(f"\n Optimal policy saved to: {final_save_path}")
+
+ppo_max_t, ppo_max_r, ppo_max_s, \
+ppo_max_sec, ppo_max_rt = np.max(ppo_results, axis=0).T
+ppo_min_t, ppo_min_r, ppo_min_s, \
+ppo_min_sec, ppo_min_rt = np.min(ppo_results, axis=0).T
+ppo_mean_t, ppo_mean_r, ppo_mean_s, \
+ppo_mean_sec, ppo_mean_rt = np.mean(ppo_results, axis=0).T
+ppo_x = np.arange(len(ppo_mean_s))
+
+fig, axs = plt.subplots(2, 1, figsize=(15,10), sharey=False, sharex=True)
+
+# PPO
+axs[0].plot(ppo_max_r, 'k', linewidth=1)
+axs[0].plot(ppo_min_r, 'k', linewidth=1)
+axs[0].plot(ppo_mean_r, 'k:', label='PPO', linewidth=2)
+axs[0].fill_between(ppo_x, ppo_min_r, ppo_max_r, facecolor='k', alpha=0.3)
+
+axs[1].plot(ppo_max_s, 'k', linewidth=1)
+axs[1].plot(ppo_min_s, 'k', linewidth=1)
+axs[1].plot(ppo_mean_s, 'k:', label='PPO', linewidth=2)
+axs[1].fill_between(ppo_x, ppo_min_s, ppo_max_s, facecolor='k', alpha=0.3)
+
+# ALL
+axs[0].set_title('Moving Avg Reward (Training)')
+axs[1].set_title('Moving Avg Reward (Evaluation)')
+plt.xlabel('Episodes')
+axs[0].legend(loc='upper left')
+plt.savefig("PPO_Gas_Storage_Moving_Average_Reward.png")
+
+def compute_futures_curve(day, S_t, r_t, delta_t):
+    futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
+    remaining_futures = max(12 - (day // 30), 0)  # Shrinks every 30 days
+    for k in range(12):
+        expiration_day = (k+1) * 30  # Expiration at the end of month (1-based index)
+        tau = (expiration_day - day) / 360.0
+        if tau < 0:  # Contract expired, skip (remains 0.0)
+            continue
+        beta_r = (2 * (1 - np.exp(-ksi_r * tau))) / (2 * ksi_r - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)))
+        beta_delta = -(1 - np.exp(-kappa_delta * tau)) / kappa_delta
+        beta_0 = (theta_r / sigma_r**2) * (2 * np.log(1 - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)) / (2 * ksi_r))
+                                                     + (ksi_r - kappa_r) * tau) \
+                 + (sigma_delta**2 * tau) / (2 * kappa_delta**2) \
+                 - (sigma_s * sigma_delta * rho_1 + theta_delta) * tau / kappa_delta \
+                 - (sigma_s * sigma_delta * rho_1 + theta_delta) * np.exp(-kappa_delta * tau) / kappa_delta**2 \
+                 + (4 * sigma_delta**2 * np.exp(-kappa_delta * tau) - sigma_delta**2 * np.exp(-2 * kappa_delta * tau)) / (4 * kappa_delta**3) \
+                 + (sigma_s * sigma_delta * rho_1 + theta_delta) / kappa_delta**2 \
+                 - 3 * sigma_delta**2 / (4 * kappa_delta**3)
+        F_tk = np.exp(np.log(S_t) + seasonal_factors[k] + beta_0 + beta_r * r_t + beta_delta * delta_t)
+        futures_list[:,k] = F_tk
+    return futures_list
+
+# Parameters for the Yan (2002) model
+N_simulations = 100 # Number of simulations
+T = 360  
+dt = 1/(T+1)
+# Model Parameters (Assumed)
+kappa_r = 0.492828372105622
+sigma_r = 0.655898616135014
+theta_r = 0.000588276156660185
+kappa_delta= 1.17723166341479
+sigma_delta = 1.03663918307669
+theta_delta = -0.213183673388138
+sigma_s = 0.791065501973918
+rho_1 = 0.899944474373156
+rho_2 = -0.306810849087325
+sigma_v = 0.825941396204049
+theta_v = 0.0505685591761352
+theta = 0.00640705687096142
+kappa_v = 2.36309244973169
+lam = 0.638842070975342
+sigma_j = 0.032046147726045
+mu_j = 0.0137146728855484
+seed = 34
+initial_spot_price = np.exp(2.9479)
+initial_r = 0.15958620269619
+initial_delta =  0.106417288572204
+initial_v =  0.0249967313173077
+
+ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
+seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+                             -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
+                             -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969  ])
+
+
+# Simulate state variables using Euler-Maruyama
+S_t = np.zeros((N_simulations, T+1))
+r_t = np.zeros((N_simulations, T+1))
+delta_t = np.zeros((N_simulations, T+1))
+v_t = np.zeros((N_simulations, T+1))
+F_t = np.zeros((N_simulations, T+1, 12))
+
+# Initialize state variables
+S_t[:, 0] = initial_spot_price
+r_t[:, 0] = initial_r
+delta_t[:, 0] = initial_delta
+v_t[:, 0] = initial_v
+F_t[:,0,:] = compute_futures_curve(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
+# F_t[:,0,:] = np.tile(np.array([16.92, 16.27, 16.00, 15.95, 16.09, 16.25, 16.76, 17.59, 17.82, 17.97, 18.00, 17.63]), (N_simulations, 1))
+
+W = np.random.default_rng(seed=seed)
+# Simulating process
+
+for t in range(1, T+1):
+    dW_1 = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_1
+    dW_r = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_r (interest rate)
+    dW_2 = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_2
+    dW_delta = rho_1 * dW_1 + np.sqrt(1 - rho_1 ** 2) * W.normal(0, np.sqrt(dt), N_simulations)  # For dW_delta (correlated with dW_1)
+    dW_v = rho_2 * dW_2 + np.sqrt(1 - rho_2 ** 2) * W.normal(0, np.sqrt(dt), N_simulations)  # For dW_v (correlated with dW_2)
+    
+    # Probability of jump occurrence
+    dq = W.choice([0, 1], p=[1 - lam * dt, lam * dt], size = N_simulations)
+
+    # Jump magnitude: ln(1 + J) ~ N[ln(1 + mu_J) - 0.5 * sigma_J^2, sigma_J^2]
+    ln_1_plus_J = W.normal(np.log(1 + mu_j) - 0.5 * sigma_j ** 2, sigma_j, N_simulations)
+    J = np.exp(ln_1_plus_J) - 1  # Jump size for the spot price
+
+    J_v = W.exponential(scale=theta, size = N_simulations)
+
+    S_t[:, t] = S_t[:, t-1] + (r_t[:, t-1] - delta_t[:, t-1] - lam * mu_j) * S_t[:, t-1] * dt + sigma_s * S_t[:, t-1] * dW_1 + np.sqrt(np.maximum(v_t[:, t-1],0)) * S_t[:, t-1] * dW_2 + J * S_t[:, t-1] * dq
+
+    r_t[:, t] = r_t[:, t-1] + (theta_r - kappa_r * r_t[:, t-1]) * dt + sigma_r * np.sqrt(np.maximum(r_t[:, t-1], 0)) * dW_r
+
+    delta_t[:, t] = delta_t[:, t-1] + (theta_delta - kappa_delta * delta_t[:, t-1]) * dt + sigma_delta * dW_delta
+
+    v_t[:, t] = v_t[:, t-1] + (theta_v - kappa_v * v_t[:, t-1]) * dt + sigma_v * np.sqrt(np.maximum(v_t[:, t-1], 0)) * dW_v + J_v * dq
+
+    F_t[:, t, :] = compute_futures_curve(t, S_t[:, t], r_t[:, t], delta_t[:, t] )
+
+N_simulations = 100  # Number of simulations
+n = 12  # Number of months
+T = 360  
+N_maturities = 12
+decision_times = np.arange(0, T+1, 30)  # Decision points tau = [0, 30, 60, ..., 360]
+V_max = 1.0
+V_min = 0.0
+I_max = 0.4
+W_max = 0.4
+V_0 = 0  # Initial reservoir balance
+V_T = 0  # Final balance condition
+
+# Initialize results
+V_I_Rolling = np.zeros((N_simulations, len(decision_times)))  # Intrinsic value per maturity
+CF_IE_Rolling = np.zeros(N_simulations)  # Total cash-flow per simulation
+X_tau = np.zeros((N_simulations, len(decision_times), N_maturities))
+
+# Loop over all simulations
+for j in range(N_simulations):
+    V_t = V_0
+    L_n = np.tril(np.ones((n, n)))  # Lower triangular matrix for cumulative sums
+    A = np.vstack([L_n, -L_n])  # Stacking for V_max and V_min constraints
+    b = np.hstack([(V_max - V_t) * np.ones(n), -(V_min - V_t) * np.ones(n)])
+    # Equality constraint: Final balance VT = 0
+    A_eq = np.ones((1, n))
+    b_eq = np.array([V_T - V_t])
+    # Box constraints: -W_max ≤ xi ≤ I_max
+    bounds = [(-W_max, I_max) for _ in range(n)]
+    CF = 0
+    for i, tau in enumerate(decision_times):
+        if i == 0:
+            # Compute initial intrinsic value V_I,0 = -F_0 * X_0 for all maturities
+            prices = F_t[j, tau, :]
+            X_tau[j, i, :] = linprog(prices, A_ub=A, b_ub=b, A_eq=A_eq, b_eq=b_eq, bounds=bounds,  method="highs").x 
+            V_I_Rolling[j, i] = -np.dot(prices , X_tau[j, i, :])
+            continue
+            
+        prev_tau = decision_times[i-1]
+        
+        # Compute realized P/L from futures position for each maturity
+        CF += np.dot((F_t[j, tau, :] - F_t[j, prev_tau, :]) , X_tau[j, i-1, :])
+
+        # Update intrinsic value for each maturity
+        prices = F_t[j, tau, :]
+        # Identify zero-price variables
+        zero_price_indices = (prices == 0)
+        # Modify bounds: Force zero-price variables to be zero (fix them)
+        adjusted_bounds = [(0, 0) if zero_price_indices[i] else bounds[i] for i in range(len(prices))]
+        
+        if i < 12:
+            X_tau[j, i, :] = linprog(prices, A_ub=A, b_ub=b, A_eq=A_eq, b_eq=b_eq, bounds=adjusted_bounds, method="highs").x 
+        else:
+            X_tau[j, i, :] = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -V_t])
+            CF += -F_t[j, tau, i-1] * X_tau[j, i, i-1]
+
+        V_I_Rolling[j, i] = -np.dot(prices , X_tau[j, i, :])
+        
+        V_t += X_tau[j, i, i-1]
+        b = np.hstack([(V_max - V_t) * np.ones(n), -(V_min - V_t) * np.ones(n)])
+        b_eq = np.array([V_T - V_t])
+
+        # Compute spot cash-flow using front-month futures (maturity=0)
+        # CF += -F_t[j, tau, i-1] * X_tau[j, i, i-1]
+            
+    # Update total cash-flows for this simulation
+    CF_IE_Rolling[j] = CF
+
+# Compute estimated total intrinsic + extrinsic value
+V_IE_Rolling = np.mean(CF_IE_Rolling)
+
+# Display results
+print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE_Rolling:.4f}")
+
+N_simulations = 100 # Number of simulations
+T = 360  
+N_maturities = 12
+decision_times = np.arange(0, T+1, 30)  # Decision points tau = [0, 30, 60, ..., 360]
+V_max = 1.0
+V_min = 0.0
+I_max = 0.4
+W_max = 0.4
+V_0 = 0  # Initial reservoir balance
+V_T = 0  # Final balance condition
+
+# Initialize results
+V_I = np.zeros((N_simulations, len(decision_times)))  # Intrinsic value per maturity
+CF_IE = np.zeros(N_simulations)  # Total cash-flow per simulation
+X_tau = np.zeros((N_simulations, len(decision_times), N_maturities))
+
+# Loop over all simulations
+for j in range(N_simulations):
+    V_t = V_0
+    # L_n = np.tril(np.ones((n, n)))  # Lower triangular matrix for cumulative sums
+    # A = np.vstack([L_n, -L_n])  # Stacking for V_max and V_min constraints
+    # b = np.hstack([(V_max - V_t) * np.ones(n), -(V_min - V_t) * np.ones(n)])
+    # # Equality constraint: Final balance VT = 0
+    # A_eq = np.ones((1, n))
+    # b_eq = np.array([V_T - V_t])
+    # # Box constraints: -W_max ≤ xi ≤ I_max
+    # bounds = [(-W_max, I_max) for _ in range(n)]
+    CF = 0
+    for i, tau in enumerate(decision_times):
+        if i == 0:
+            # Compute initial intrinsic value V_I,0 = -F_0 * X_0 for all maturities
+            prices = F_t[j, tau, :]
+            state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
+            # env.month = state[0]
+            # env.V_t = state[-1]
+            X_tau[j, i, :] = best_agent.policy_model.select_greedy_action(state)
+            # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
+            X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
+            # X_tau[j, i, :] = trained_network(state).detach().cpu().numpy()
+            V_I[j, i] = -np.dot(prices , X_tau[j, i, :])
+            continue
+            
+        prev_tau = decision_times[i-1]
+        # Compute realized P/L from futures position for each maturity
+        CF += np.dot((F_t[j, tau, :] - F_t[j, prev_tau, :]) , X_tau[j, i-1, :])
+
+        # Update intrinsic value for each maturity
+        prices = F_t[j, tau, :]
+        state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
+        # env.month = state[0]
+        # env.V_t = state[-1]
+        X_tau[j, i, :] = best_agent.policy_model.select_greedy_action(state)
+        # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
+        X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
+        # if i < 12:
+        #     X_tau[j, i, :] = env.rescale_actions(agent.evaluation_strategy.select_action(agent.online_policy_model, state))
+        #     # X_tau[j, i, :] = trained_network(state).detach().cpu().numpy()
+        # else:
+        #     X_tau[j, i, :] = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, np.clip(-V_t,-W_max,I_max)])
+        if i == 12:           
+            X_tau[j, i, :] = np.zeros(12,dtype=np.float32)
+            X_tau[j, i, -1] = X_tau[j, i-1, -1]
+            X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
+            # print("X_tau[j, i]:  ",np.round(X_tau[j, i],2))
+            CF += -F_t[j, tau, i-1] * X_tau[j, i-1, i-1] 
+            V_I[j, i] = -np.dot(prices , X_tau[j, i, :])
+
+        V_I[j, i] = -np.dot(prices , X_tau[j, i, :])
+        
+        V_t += np.round(X_tau[j, i, i-1],2)
+        # b = np.hstack([(V_max - V_t) * np.ones(n), -(V_min - V_t) * np.ones(n)])
+        # b_eq = np.array([V_T - V_t])
+
+        # Compute spot cash-flow using front-month futures (maturity=0)
+        # CF += -F_t[j, tau, i-1] * X_tau[j, i, i-1]
+            
+    # Update total cash-flows for this simulation
+    CF_IE[j] = CF
+
+# Compute estimated total intrinsic + extrinsic value
+V_IE = np.mean(CF_IE)
+
+# Display results
+print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE:.4f}")
