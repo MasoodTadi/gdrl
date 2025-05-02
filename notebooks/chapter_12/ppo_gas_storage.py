@@ -417,10 +417,7 @@ class FCCA(nn.Module):
                  input_dim,
                  output_dim,   # output_dim = tuple like (n_actions_per_dim,)
                  hidden_dims=(32, 32),
-                 activation_fc=F.relu
-                 # use_projection=True
-                 # action_meanings_list=None,
-                 ):
+                 activation_fc=F.relu):
         super(FCCA, self).__init__()
         self.activation_fc = activation_fc
 
@@ -434,20 +431,6 @@ class FCCA(nn.Module):
         self.output_layer = nn.Linear(hidden_dims[-1], sum(output_dim))
 
         self.output_dim = tuple(output_dim)  # (n1, n2, ..., n12)
-
-        # n_months = 12
-        # self.action_meanings_list = []
-        # for i in range(n_months):
-        #     if i == 0:
-        #         self.action_meanings_list.append([0.0, 0.2, 0.4])
-        #     elif i == n_months - 1:
-        #         self.action_meanings_list.append([-0.4, -0.2, 0.0])
-        #     else:
-        #         self.action_meanings_list.append([-0.4, -0.2, 0.0, 0.2, 0.4])
-
-        # self.use_projection = use_projection
-        # if self.use_projection:
-            # self.projection_layer = projection_layer        
 
         device = "cpu"
         if torch.cuda.is_available():
@@ -475,7 +458,7 @@ class FCCA(nn.Module):
         splits = torch.split(logits, self.output_dim, dim=-1)
         return splits
 
-    def np_pass(self, states, env_params=None):
+    def np_pass(self, states):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
@@ -484,11 +467,9 @@ class FCCA(nn.Module):
             dist = torch.distributions.Categorical(logits=logit)
             action = dist.sample()
             logpa = dist.log_prob(action)
-            exploratory = (idx != logit.argmax(dim=-1))
+            exploratory = (action != logit.argmax(dim=-1))
 
-            # raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
-
-            raw_actions.append(action)
+            actions.append(action)
             logpas.append(logpa)
             is_exploratory.append(exploratory)
 
@@ -506,7 +487,6 @@ class FCCA(nn.Module):
         for logit in split_logits:
             dist = torch.distributions.Categorical(logits=logit)
             action = dist.sample()
-            # raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
             actions.append(action)
 
         actions = torch.stack(actions, dim=-1)
