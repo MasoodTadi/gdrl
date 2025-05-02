@@ -502,7 +502,7 @@ class FCCA(nn.Module):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
-        actions = []
+        raw_actions = []
         for i, logit in enumerate(split_logits):
             dist = torch.distributions.Categorical(logits=logit)
             idx = dist.sample()

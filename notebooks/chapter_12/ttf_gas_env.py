@@ -122,10 +122,10 @@ class TTFGasStorageEnv(gym.Env):
         self.V_t = self.V_0
         return np.concatenate(([self.month], self.F_t, [self.V_t]), dtype=np.float32), {}
 
-    def step(self, action_code):
+    def step(self, action):
         
         # Validate action dimension
-        assert len(action_code) == self.n_months, "Action must have length = n_months"
+        assert len(action) == self.n_months, "Action must have length = n_months"
 
         # action = np.array([self.action_meanings_list[i][action_code[i]] for i in range(self.n_months)])
         print(action)
