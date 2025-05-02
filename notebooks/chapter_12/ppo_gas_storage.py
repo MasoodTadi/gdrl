@@ -435,15 +435,15 @@ class FCCA(nn.Module):
 
         self.output_dim = tuple(output_dim)  # (n1, n2, ..., n12)
 
-        n_months = 12
-        self.action_meanings_list = []
-        for i in range(n_months):
-            if i == 0:
-                self.action_meanings_list.append([0.0, 0.2, 0.4])
-            elif i == n_months - 1:
-                self.action_meanings_list.append([-0.4, -0.2, 0.0])
-            else:
-                self.action_meanings_list.append([-0.4, -0.2, 0.0, 0.2, 0.4])
+        # n_months = 12
+        # self.action_meanings_list = []
+        # for i in range(n_months):
+        #     if i == 0:
+        #         self.action_meanings_list.append([0.0, 0.2, 0.4])
+        #     elif i == n_months - 1:
+        #         self.action_meanings_list.append([-0.4, -0.2, 0.0])
+        #     else:
+        #         self.action_meanings_list.append([-0.4, -0.2, 0.0, 0.2, 0.4])
 
         # self.use_projection = use_projection
         # if self.use_projection:
@@ -479,38 +479,38 @@ class FCCA(nn.Module):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
-        raw_actions, logpas, is_exploratory = [], [], [], []
-        for i, logit in enumerate(split_logits):
+        actions, logpas, is_exploratory = [], [], []
+        for logit in split_logits:
             dist = torch.distributions.Categorical(logits=logit)
-            idx = dist.sample()
-            logpa = dist.log_prob(idx)
+            action = dist.sample()
+            logpa = dist.log_prob(action)
             exploratory = (idx != logit.argmax(dim=-1))
 
-            raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
+            # raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
 
-            raw_actions.append(raw_action)
+            raw_actions.append(action)
             logpas.append(logpa)
             is_exploratory.append(exploratory)
 
-        raw_actions = torch.stack(raw_actions, dim=-1)          # shape (batch_size, n_actions)
+        actions = torch.stack(actions, dim=-1)          # shape (batch_size, n_actions)
         logpas = torch.stack(logpas, dim=-1).sum(dim=-1) # sum log probs for joint policy
         is_exploratory = torch.stack(is_exploratory, dim=-1).any(dim=-1) # if any action exploratory
 
-        return raw_actions.cpu().numpy(), logpas.cpu().numpy(), is_exploratory.cpu().numpy()
+        return actions.cpu().numpy(), logpas.cpu().numpy(), is_exploratory.cpu().numpy()
 
     def select_action(self, states):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
-        raw_actions = []
-        for i, logit in enumerate(split_logits):
+        actions = []
+        for logit in split_logits:
             dist = torch.distributions.Categorical(logits=logit)
-            idx = dist.sample()
-            raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
-            raw_actions.append(raw_action)
+            action = dist.sample()
+            # raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
+            actions.append(action)
 
-        raw_actions = torch.stack(raw_actions, dim=-1)
-        return raw_actions.squeeze(0).detach().cpu().numpy()  # if input single state, return (n_actions,)
+        actions = torch.stack(actions, dim=-1)
+        return actions.squeeze(0).detach().cpu().numpy()  # if input single state, return (n_actions,)
 
     def get_predictions(self, states, actions):
         states = self._format(states)
@@ -535,14 +535,13 @@ class FCCA(nn.Module):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
-        greedy_raw_actions = []
-        for idx, logit in enumerate(split_logits):
-            greedy_idx = logit.argmax(dim=-1)
-            greedy_raw_action = torch.tensor([self.action_meanings_list[i][j] for j in greedy_idx.cpu().numpy()], device=self.device)
-            greedy_raw_actions.append(greedy_raw_action)
+        greedy_actions = []
+        for logit in split_logits:
+            greedy_action = logit.argmax(dim=-1)
+            greedy_actions.append(greedy_action)
 
-        greedy_raw_actions = torch.stack(greedy_raw_actions, dim=-1)
-        return greedy_raw_actions.squeeze(0).detach().cpu().numpy()
+        greedy_actions = torch.stack(greedy_actions, dim=-1)
+        return greedy_actions.squeeze(0).detach().cpu().numpy()
 
 class FCV(nn.Module):
     def __init__(self,
