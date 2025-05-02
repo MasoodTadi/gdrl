@@ -51,6 +51,9 @@ import cvxpy as cp
 import datetime
 from scipy.optimize import linprog
 
+from cvxpylayers.torch import CvxpyLayer
+import cvxpy as cp
+
 LEAVE_PRINT_EVERY_N_SECS = 300
 ERASE_LINE = '\x1b[2K'
 EPS = 1e-6
@@ -406,12 +409,18 @@ class EpisodeBuffer():
     def __len__(self):
         return self.episode_steps[self.episode_steps > 0].sum()
 
+
+
+
 class FCCA(nn.Module):
     def __init__(self,
                  input_dim,
                  output_dim,   # output_dim = tuple like (n_actions_per_dim,)
                  hidden_dims=(32, 32),
-                 activation_fc=F.relu):
+                 activation_fc=F.relu
+                 # use_projection=True
+                 # action_meanings_list=None,
+                 ):
         super(FCCA, self).__init__()
         self.activation_fc = activation_fc
 
@@ -425,6 +434,20 @@ class FCCA(nn.Module):
         self.output_layer = nn.Linear(hidden_dims[-1], sum(output_dim))
 
         self.output_dim = tuple(output_dim)  # (n1, n2, ..., n12)
+
+        n_months = 12
+        self.action_meanings_list = []
+        for i in range(n_months):
+            if i == 0:
+                self.action_meanings_list.append([0.0, 0.2, 0.4])
+            elif i == n_months - 1:
+                self.action_meanings_list.append([-0.4, -0.2, 0.0])
+            else:
+                self.action_meanings_list.append([-0.4, -0.2, 0.0, 0.2, 0.4])
+
+        # self.use_projection = use_projection
+        # if self.use_projection:
+            # self.projection_layer = projection_layer        
 
         device = "cpu"
         if torch.cuda.is_available():
@@ -452,39 +475,42 @@ class FCCA(nn.Module):
         splits = torch.split(logits, self.output_dim, dim=-1)
         return splits
 
-    def np_pass(self, states):
+    def np_pass(self, states, env_params=None):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
-        actions, logpas, is_exploratory = [], [], []
-        for logit in split_logits:
+        raw_actions, logpas, is_exploratory = [], [], [], []
+        for i, logit in enumerate(split_logits):
             dist = torch.distributions.Categorical(logits=logit)
-            action = dist.sample()
-            logpa = dist.log_prob(action)
-            exploratory = (action != logit.argmax(dim=-1))
+            idx = dist.sample()
+            logpa = dist.log_prob(idx)
+            exploratory = (idx != logit.argmax(dim=-1))
 
-            actions.append(action)
+            raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
+
+            raw_actions.append(raw_action)
             logpas.append(logpa)
             is_exploratory.append(exploratory)
 
-        actions = torch.stack(actions, dim=-1)          # shape (batch_size, n_actions)
+        raw_actions = torch.stack(raw_actions, dim=-1)          # shape (batch_size, n_actions)
         logpas = torch.stack(logpas, dim=-1).sum(dim=-1) # sum log probs for joint policy
         is_exploratory = torch.stack(is_exploratory, dim=-1).any(dim=-1) # if any action exploratory
 
-        return actions.cpu().numpy(), logpas.cpu().numpy(), is_exploratory.cpu().numpy()
+        return raw_actions.cpu().numpy(), logpas.cpu().numpy(), is_exploratory.cpu().numpy()
 
     def select_action(self, states):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
         actions = []
-        for logit in split_logits:
+        for i, logit in enumerate(split_logits):
             dist = torch.distributions.Categorical(logits=logit)
-            action = dist.sample()
-            actions.append(action)
+            idx = dist.sample()
+            raw_action = torch.tensor([self.action_meanings_list[i][j] for j in idx.cpu().numpy()], device=self.device)
+            raw_actions.append(raw_action)
 
-        actions = torch.stack(actions, dim=-1)
-        return actions.squeeze(0).detach().cpu().numpy()  # if input single state, return (n_actions,)
+        raw_actions = torch.stack(raw_actions, dim=-1)
+        return raw_actions.squeeze(0).detach().cpu().numpy()  # if input single state, return (n_actions,)
 
     def get_predictions(self, states, actions):
         states = self._format(states)
@@ -509,13 +535,14 @@ class FCCA(nn.Module):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
-        greedy_actions = []
-        for logit in split_logits:
-            greedy_action = logit.argmax(dim=-1)
-            greedy_actions.append(greedy_action)
+        greedy_raw_actions = []
+        for idx, logit in enumerate(split_logits):
+            greedy_idx = logit.argmax(dim=-1)
+            greedy_raw_action = torch.tensor([self.action_meanings_list[i][j] for j in greedy_idx.cpu().numpy()], device=self.device)
+            greedy_raw_actions.append(greedy_raw_action)
 
-        greedy_actions = torch.stack(greedy_actions, dim=-1)
-        return greedy_actions.squeeze(0).detach().cpu().numpy()
+        greedy_raw_actions = torch.stack(greedy_raw_actions, dim=-1)
+        return greedy_raw_actions.squeeze(0).detach().cpu().numpy()
 
 class FCV(nn.Module):
     def __init__(self,
@@ -882,7 +909,7 @@ for seed in SEEDS:
         # 'env_name': 'LunarLander-v3',
         'gamma': 1.00,
         'max_minutes': np.inf,
-        'max_episodes': 100_000,
+        'max_episodes': 100,
         'goal_mean_100_reward': 50
     }
 
