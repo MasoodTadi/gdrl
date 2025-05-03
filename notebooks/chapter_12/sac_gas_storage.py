@@ -1102,14 +1102,14 @@ class SAC():
 
 sac_results = []
 best_agent, best_eval_score = None, float('-inf')
-SEEDS = [90]
+SEEDS = (12, 34, 90)
 for seed in SEEDS:
     environment_settings = {
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.00,
         'max_minutes': np.inf,
-        'max_episodes': 20,
-        'goal_mean_100_reward': np.inf
+        'max_episodes': 20_000,
+        'goal_mean_100_reward': 10
     }
 
     policy_model_fn = lambda nS, bounds: FCGP(nS, bounds, hidden_dims=(256,256))
