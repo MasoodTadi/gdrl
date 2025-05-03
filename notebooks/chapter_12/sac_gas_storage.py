@@ -824,8 +824,8 @@ class SAC():
         dynamic_target_entropy = self.policy_model.compute_dynamic_target_entropy(states)
         target_alpha = (logpi_s.detach().squeeze(-1) + dynamic_target_entropy.detach())
         alpha_loss = -(self.policy_model.logalpha * target_alpha).mean()
-        if torch.rand(1).item() < 0.01:  # 1% chance to print
-            print("Avg active dims:", -dynamic_target_entropy.mean().item())
+        # if torch.rand(1).item() < 0.01:  # 1% chance to print
+        #     print("Avg active dims:", -dynamic_target_entropy.mean().item())
     
         self.policy_model.alpha_optimizer.zero_grad()
         alpha_loss.backward()
