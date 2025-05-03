@@ -44,6 +44,8 @@ from skimage.color import rgb2gray
 from subprocess import check_output
 from IPython.display import display, HTML
 
+import datetime
+
 LEAVE_PRINT_EVERY_N_SECS = 300
 ERASE_LINE = '\x1b[2K'
 EPS = 1e-6
