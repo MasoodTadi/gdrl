@@ -828,6 +828,12 @@ class SAC():
         #     print("Avg active dims:", -dynamic_target_entropy.mean().item())
     
         self.policy_model.alpha_optimizer.zero_grad()
+        if torch.isnan(alpha_loss).any():
+            print("NaN detected in alpha_loss!")
+            print("logpi_s (detached):", logpi_s.detach())
+            print("dynamic_target_entropy:", dynamic_target_entropy)
+            print("alpha:", self.policy_model.logalpha.exp())
+            raise ValueError("NaN in alpha_loss")
         alpha_loss.backward()
         self.policy_model.alpha_optimizer.step()
         alpha = self.policy_model.logalpha.exp()
@@ -838,6 +844,11 @@ class SAC():
         policy_loss = (alpha * logpi_s - current_q_sa).mean()
     
         self.policy_optimizer.zero_grad()
+        if torch.isnan(policy_loss).any():
+            print("NaN in policy_loss!")
+            print("logpi_s:", logpi_s)
+            print("current_q_sa:", current_q_sa)
+            raise ValueError("NaN detected in policy loss.")
         with torch.autograd.set_detect_anomaly(True):
             policy_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.policy_model.parameters(), self.policy_max_grad_norm)
@@ -849,6 +860,12 @@ class SAC():
         q_spap_b = self.target_value_model_b(next_states, ap)
         q_spap = torch.min(q_spap_a, q_spap_b) - alpha * logpi_sp
         target_q_sa = (rewards + self.gamma * q_spap * (1 - is_terminals)).detach()
+        if torch.isnan(target_q_sa).any():
+            print("NaN in target_q_sa!")
+            print("q_spap:", q_spap)
+            print("rewards:", rewards)
+            print("is_terminals:", is_terminals)
+            raise ValueError("NaN in target Q-value")
     
         q_sa_a = self.online_value_model_a(states.detach(), actions)
         q_sa_b = self.online_value_model_b(states.detach(), actions)
@@ -856,11 +873,21 @@ class SAC():
         qb_loss = (q_sa_b - target_q_sa).pow(2).mul(0.5).mean()
     
         self.value_optimizer_a.zero_grad()
+        if torch.isnan(qa_loss).any():
+            print("NaN detected in qa_loss!")
+            print("q_sa_a:", q_sa_a)
+            print("target_q_sa:", target_q_sa)
+            raise ValueError("NaN in qa_loss")
         qa_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.online_value_model_a.parameters(), self.value_max_grad_norm)
         self.value_optimizer_a.step()
     
         self.value_optimizer_b.zero_grad()
+        if torch.isnan(qb_loss).any():
+            print("NaN detected in qb_loss!")
+            print("q_sa_b:", q_sa_b)
+            print("target_q_sa:", target_q_sa)
+            raise ValueError("NaN in qb_loss")
         qb_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.online_value_model_b.parameters(), self.value_max_grad_norm)
         self.value_optimizer_b.step()
@@ -907,7 +934,13 @@ class SAC():
         
         training_start, last_debug_time = time.time(), float('-inf')
 
-        self.checkpoint_dir = tempfile.mkdtemp()
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.checkpoint_dir = os.path.expanduser(f"~/sac_checkpoints/run_{timestamp}")
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+    
+        print(f"Running on: {os.uname().nodename}")
+        print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
+        # self.checkpoint_dir = tempfile.mkdtemp()
         # self.make_env_fn = make_env_fn
         # self.make_env_kargs = make_env_kargs
         self.seed = seed
