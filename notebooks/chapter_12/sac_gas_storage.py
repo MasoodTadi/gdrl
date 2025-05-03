@@ -555,19 +555,25 @@ class FCGP(nn.Module):
 
     def _get_futures_mask(self, state):
         """
-        Returns a mask of shape [batch_size, action_dim] with 1 for active futures,
-        and 0 for expired ones. Uses state[:, 0] (month index).
+        Returns a PyTorch tensor mask of shape [batch_size, action_dim]
+        with 1 for active futures and 0 for expired ones.
         """
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, device=self.device, dtype=torch.float32)
+    
         if state.ndim == 1:
-            state = state.unsqueeze(0) # [1, obs_dim]
+            state = state.unsqueeze(0)
     
-        month = int(state[0, 0].item())
-        num_expired = max(0, month - 1)
+        batch_size = state.shape[0]
+        action_dim = self.env_max.shape[0]
+        months = state[:, 0].long().clamp(min=0, max=11)
     
-        mask = np.ones(self.env_max.shape[0], dtype=np.float32)
-        mask[:num_expired] = 0.0
+        # Create torch mask, NOT numpy
+        mask = torch.ones((batch_size, action_dim), device=self.device)
+        for i in range(batch_size):
+            num_expired = max(0, months[i].item() - 1)
+            mask[i, :num_expired] = 0.0
+    
         return mask
 
     def _apply_action_mask(self, mean, log_std, state):
@@ -714,7 +720,7 @@ class FCGP(nn.Module):
                                           high=self.env_max.cpu().numpy())
         
         # Get the expired futures mask from state and apply to random_action
-        mask = self._get_futures_mask(state).reshape(-1)
+        mask = self._get_futures_mask(state).cpu().numpy().reshape(-1)
         random_action = random_action * mask
 
         action_shape = self.env_max.cpu().numpy().shape
