@@ -1578,7 +1578,7 @@ for j in range(N_simulations):
             # Compute initial intrinsic value V_I,0 = -F_0 * X_0 for all maturities
             prices = F_t[j, tau, :]
             state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
-            X_tau[j, i, :] = agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+            X_tau[j, i, :] = best_agent.policy_model.select_greedy_action(state)
             # print("X_tau[j, i]:  ",np.round(X_tau[j, i],2))
             effective_V_max = min(V_max, (12 - (i-1)) * I_max)
             lock_mask = np.zeros(N_maturities, dtype=bool)  # all locked by default
@@ -1611,7 +1611,7 @@ for j in range(N_simulations):
         prices = F_t[j, tau, :]
         state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
         # print('i: ', i, ' V_t: ',V_t)
-        X_tau[j, i, :] = agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+        X_tau[j, i, :] = best_agent.policy_model.select_greedy_action(state)
         # print("X_tau[j, i]:  ",np.round(X_tau[j, i],2))
         effective_V_max = min(V_max, (12 - (i-1)) * I_max)
         lock_mask = np.zeros(N_maturities, dtype=bool)  # all locked by default
