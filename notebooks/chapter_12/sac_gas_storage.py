@@ -554,10 +554,14 @@ class FCGP(nn.Module):
         self.alpha_optimizer = optim.Adam([self.logalpha], lr=entropy_lr)
 
     def _get_futures_mask(self, state):
+        """
+        Returns a mask of shape [batch_size, action_dim] with 1 for active futures,
+        and 0 for expired ones. Uses state[:, 0] (month index).
+        """
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, device=self.device, dtype=torch.float32)
         if state.ndim == 1:
-            state = state.unsqueeze(0)
+            state = state.unsqueeze(0) # [1, obs_dim]
     
         month = int(state[0, 0].item())
         num_expired = max(0, month - 1)
@@ -678,7 +682,16 @@ class FCGP(nn.Module):
     
         # Log prob calculation (cleaned)
         log_prob = pi_distribution.log_prob(pre_tanh_action)
-        log_prob -= torch.log((1 - tanh_action.pow(2)).clamp(min=epsilon))
+        # Correction term for tanh squashing; clamp to avoid log(0)
+        squash_correction = torch.log((1 - tanh_action.pow(2)).clamp(min=1e-6, max=1.0))
+        log_prob -= squash_correction
+        # log_prob -= torch.log((1 - tanh_action.pow(2)).clamp(min=epsilon))
+        # Mask out log-probs of expired dimensions (treat them as deterministic zeros)
+        mask = self._get_futures_mask(state)  # shape: (1, action_dim) or (batch, action_dim)
+        if mask.ndim == 1:
+            mask = mask.unsqueeze(0)  # Ensure shape [batch, dim]
+        log_prob = log_prob * mask
+        # Final log prob is sum over valid (unmasked) dimensions
         log_prob = log_prob.sum(dim=-1, keepdim=True)
     
         # Return sampled action, log_prob, and greedy action estimate
