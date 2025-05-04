@@ -291,7 +291,8 @@ class TTFGasStorageEnv(gym.Env):
                 cost1 += min(new_volume - self.V_min, self.V_max - new_volume) * self.penalty_lambda1
             # Except for the first loop, updating V_t: V_t = V_{t-1} + X_{t}^t   
             if self.month != 0 and i == max(self.month - 1, 0):
-                self.V_t = np.clip(new_volume, self.V_min, self.V_max)
+                # self.V_t = np.clip(new_volume, self.V_min, self.V_max)
+                self.V_t = new_volume
                 running_sum = 0
         # Computing the 12th action (dependent action) and adding penalties for the last dependent action decision
         # last_action = np.clip(-self.V_t, -self.W_max, self.I_max)
