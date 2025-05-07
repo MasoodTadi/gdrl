@@ -390,10 +390,10 @@ class GreedyStrategy():
         with torch.no_grad():
             if hasattr(model, "set_noise_active"):
                 model.set_noise_active(False)
-            if state[0]==0:
-                greedy_action = np.array([0. , 0. ,  0.4,  0.4,  0.2, 0. , 0. , 0. , -0.2, -0.4, -0.4, 0.], dtype=np.float32)
-            else:
-                greedy_action = model(state).cpu().detach().numpy().squeeze()
+            # if state[0]==0:
+            #     greedy_action = np.array([0. , 0. ,  0.4,  0.4,  0.2, 0. , 0. , 0. , -0.2, -0.4, -0.4, 0.], dtype=np.float32)
+            # else:
+            greedy_action = model(state).cpu().detach().numpy().squeeze()
 
         action = np.clip(greedy_action, self.low, self.high)
         return np.reshape(action, self.high.shape)
@@ -544,50 +544,81 @@ class FCDP(nn.Module):
         # actions = actions * mask + 0.5 * (1 - mask)
         return actions
 
-class ReplayBuffer():
+class PrioritizedReplayBuffer():
     def __init__(self, 
-                 max_size=100000,
-                 batch_size=128):
-        self.ss_mem = np.empty(shape=(max_size), dtype=np.ndarray)
-        self.as_mem = np.empty(shape=(max_size), dtype=np.ndarray)
-        self.rs_mem = np.empty(shape=(max_size), dtype=np.ndarray)
-        self.ps_mem = np.empty(shape=(max_size), dtype=np.ndarray)
-        self.ds_mem = np.empty(shape=(max_size), dtype=np.ndarray)
-
-        self.max_size = max_size
+                 max_samples=10000, 
+                 batch_size=64, 
+                 rank_based=False,
+                 alpha=0.6, 
+                 beta0=0.1, 
+                 beta_rate=0.99992):
+        self.max_samples = max_samples
+        self.memory = np.empty(shape=(self.max_samples, 2), dtype=np.ndarray)
         self.batch_size = batch_size
-        self._idx = 0
-        self.size = 0
-    
-    def store(self, sample):
-        s, a, r, p, d = sample
-        self.ss_mem[self._idx] = s
-        self.as_mem[self._idx] = a
-        self.rs_mem[self._idx] = r
-        self.ps_mem[self._idx] = p
-        self.ds_mem[self._idx] = d
-        
-        self._idx += 1
-        self._idx = self._idx % self.max_size
+        self.n_entries = 0
+        self.next_index = 0
+        self.td_error_index = 0
+        self.sample_index = 1
+        self.rank_based = rank_based # if not rank_based, then proportional
+        self.alpha = alpha # how much prioritization to use 0 is uniform (no priority), 1 is full priority
+        self.beta = beta0 # bias correction 0 is no correction 1 is full correction
+        self.beta0 = beta0 # beta0 is just beta's initial value
+        self.beta_rate = beta_rate
 
-        self.size += 1
-        self.size = min(self.size, self.max_size)
+    def update(self, idxs, td_errors):
+        self.memory[idxs, self.td_error_index] = np.abs(td_errors)
+        if self.rank_based:
+            sorted_arg = self.memory[:self.n_entries, self.td_error_index].argsort()[::-1]
+            self.memory[:self.n_entries] = self.memory[sorted_arg]
+
+    def store(self, sample):
+        priority = 1.0
+        if self.n_entries > 0:
+            priority = self.memory[
+                :self.n_entries, 
+                self.td_error_index].max()
+        self.memory[self.next_index, 
+                    self.td_error_index] = priority
+        self.memory[self.next_index, 
+                    self.sample_index] = np.array(sample, dtype=object)
+        self.n_entries = min(self.n_entries + 1, self.max_samples)
+        self.next_index += 1
+        self.next_index = self.next_index % self.max_samples
+
+    def _update_beta(self):
+        self.beta = min(1.0, self.beta * self.beta_rate**-1)
+        return self.beta
 
     def sample(self, batch_size=None):
-        if batch_size == None:
-            batch_size = self.batch_size
+        batch_size = self.batch_size if batch_size == None else batch_size
+        self._update_beta()
+        entries = self.memory[:self.n_entries]
 
-        idxs = np.random.choice(
-            self.size, batch_size, replace=False)
-        experiences = np.vstack(self.ss_mem[idxs]), \
-                      np.vstack(self.as_mem[idxs]), \
-                      np.vstack(self.rs_mem[idxs]), \
-                      np.vstack(self.ps_mem[idxs]), \
-                      np.vstack(self.ds_mem[idxs])
-        return experiences
+        if self.rank_based:
+            priorities = 1/(np.arange(self.n_entries) + 1)
+        else: # proportional
+            priorities = entries[:, self.td_error_index] + EPS
+        scaled_priorities = priorities**self.alpha        
+        probs = np.array(scaled_priorities/np.sum(scaled_priorities), dtype=np.float64)
+
+        weights = (self.n_entries * probs)**-self.beta
+        normalized_weights = weights/weights.max()
+        idxs = np.random.choice(self.n_entries, batch_size, replace=False, p=probs)
+        samples = np.array([entries[idx] for idx in idxs])
+        
+        samples_stacks = [np.vstack(batch_type) for batch_type in np.vstack(samples[:, self.sample_index]).T]
+        idxs_stack = np.vstack(idxs)
+        weights_stack = np.vstack(normalized_weights[idxs])
+        return idxs_stack, weights_stack, samples_stacks
 
     def __len__(self):
-        return self.size
+        return self.n_entries
+    
+    def __repr__(self):
+        return str(self.memory[:self.n_entries])
+    
+    def __str__(self):
+        return str(self.memory[:self.n_entries])
 
 class DDPG():
     def __init__(self, 
@@ -624,7 +655,33 @@ class DDPG():
         self.update_target_every_steps = update_target_every_steps
         self.tau = tau
 
-    def optimize_model(self, experiences):
+    # def optimize_model(self, experiences):
+    #     states, actions, rewards, next_states, is_terminals = experiences
+    #     batch_size = len(is_terminals)
+
+    #     argmax_a_q_sp = self.target_policy_model(next_states)
+    #     max_a_q_sp = self.target_value_model(next_states, argmax_a_q_sp)
+    #     target_q_sa = rewards + self.gamma * max_a_q_sp * (1 - is_terminals)
+    #     q_sa = self.online_value_model(states, actions)
+    #     td_error = q_sa - target_q_sa.detach()
+    #     value_loss = td_error.pow(2).mul(0.5).mean()
+    #     self.value_optimizer.zero_grad()
+    #     value_loss.backward()
+    #     torch.nn.utils.clip_grad_norm_(self.online_value_model.parameters(), 
+    #                                    self.value_max_grad_norm)
+    #     self.value_optimizer.step()
+
+    #     argmax_a_q_s = self.online_policy_model(states)
+    #     max_a_q_s = self.online_value_model(states, argmax_a_q_s)
+    #     policy_loss = -max_a_q_s.mean()
+    #     self.policy_optimizer.zero_grad()
+    #     policy_loss.backward()
+    #     torch.nn.utils.clip_grad_norm_(self.online_policy_model.parameters(), 
+    #                                    self.policy_max_grad_norm)        
+    #     self.policy_optimizer.step()
+
+    def optimize_model(self, idxs_weights_samples):
+        idxs, weights, experiences = idxs_weights_samples
         states, actions, rewards, next_states, is_terminals = experiences
         batch_size = len(is_terminals)
 
@@ -633,7 +690,8 @@ class DDPG():
         target_q_sa = rewards + self.gamma * max_a_q_sp * (1 - is_terminals)
         q_sa = self.online_value_model(states, actions)
         td_error = q_sa - target_q_sa.detach()
-        value_loss = td_error.pow(2).mul(0.5).mean()
+        weights = torch.tensor(weights, device=td_error.device, dtype=td_error.dtype)
+        value_loss = (td_error.pow(2) * weights).mean()  # apply importance weights
         self.value_optimizer.zero_grad()
         value_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.online_value_model.parameters(), 
@@ -648,6 +706,10 @@ class DDPG():
         torch.nn.utils.clip_grad_norm_(self.online_policy_model.parameters(), 
                                        self.policy_max_grad_norm)        
         self.policy_optimizer.step()
+
+        # Update TD errors in buffer
+        self.replay_buffer.update(idxs.squeeze(), td_error.detach().cpu().numpy().squeeze())
+
 
     def interaction_step(self, state, env):
         min_samples = self.replay_buffer.batch_size * self.n_warmup_batches
@@ -686,14 +748,7 @@ class DDPG():
               max_minutes, max_episodes, goal_mean_100_reward):
         training_start, last_debug_time = time.time(), float('-inf')
 
-        # Safe and persistent checkpoint directory in home
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.checkpoint_dir = os.path.expanduser(f"~/ddpg_checkpoints/run_{timestamp}")
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
-    
-        print(f"Running on: {os.uname().nodename}")
-        print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
-        # self.checkpoint_dir = tempfile.mkdtemp()
+        self.checkpoint_dir = tempfile.mkdtemp()
         #print(self.checkpoint_dir)
         #self.make_env_fn = make_env_fn
         #self.make_env_kargs = make_env_kargs
@@ -743,9 +798,12 @@ class DDPG():
 
                 min_samples = self.replay_buffer.batch_size * self.n_warmup_batches
                 if len(self.replay_buffer) > min_samples:
-                    experiences = self.replay_buffer.sample()
-                    experiences = self.online_value_model.load(experiences)
-                    self.optimize_model(experiences)
+                    # experiences = self.replay_buffer.sample()
+                    # experiences = self.online_value_model.load(experiences)
+                    # self.optimize_model(experiences)
+                    idxs_weights_samples = self.replay_buffer.sample()
+                    samples = self.online_value_model.load(idxs_weights_samples[2])
+                    self.optimize_model((idxs_weights_samples[0], idxs_weights_samples[1], samples))
 
                 if np.sum(self.episode_timestep) % self.update_target_every_steps == 0:
                     self.update_networks()
@@ -849,37 +907,6 @@ class DDPG():
 
         return self.checkpoint_paths
 
-    def demo_last(self, title='Fully-trained {} Agent', n_episodes=2, max_n_videos=2):
-        env = self.make_env_fn(**self.make_env_kargs, monitor_mode='evaluation', render=True, record=True)
-
-        checkpoint_paths = self.get_cleaned_checkpoints()
-        last_ep = max(checkpoint_paths.keys())
-        self.online_policy_model.load_state_dict(torch.load(checkpoint_paths[last_ep]))
-
-        self.evaluate(self.online_policy_model, env, n_episodes=n_episodes)
-        env.close()
-        data = get_gif_html(env_videos=env.videos, 
-                            title=title.format(self.__class__.__name__),
-                            max_n_videos=max_n_videos)
-        del env
-        return HTML(data=data)
-
-    def demo_progression(self, title='{} Agent progression', max_n_videos=4):
-        env = self.make_env_fn(**self.make_env_kargs, monitor_mode='evaluation', render=True, record=True)
-
-        checkpoint_paths = self.get_cleaned_checkpoints()
-        for i in sorted(checkpoint_paths.keys()):
-            self.online_policy_model.load_state_dict(torch.load(checkpoint_paths[i]))
-            self.evaluate(self.online_policy_model, env, n_episodes=1)
-
-        env.close()
-        data = get_gif_html(env_videos=env.videos, 
-                            title=title.format(self.__class__.__name__),
-                            subtitle_eps=sorted(checkpoint_paths.keys()),
-                            max_n_videos=max_n_videos)
-        del env
-        return HTML(data=data)
-
     def save_checkpoint(self, episode_idx, model):
         torch.save(model.state_dict(), 
                    os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
@@ -950,16 +977,16 @@ class NormalNoiseStrategy:
 
         return final_action
 
-SEEDS = [90]
+SEEDS = (34, 56, 78, 90)
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
     environment_settings = {
         'env_name': 'TTFGasStorageEnv',
-        'gamma': 0.99,
+        'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 200_000,
-        'goal_mean_100_reward': np.inf#-15#-150
+        'max_episodes': 100,
+        'goal_mean_100_reward': 10.0#-15#-150
     }
 
     policy_model_fn = lambda nS, bounds: FCDP(nS, bounds, hidden_dims=(256,256))
@@ -970,17 +997,18 @@ for seed in SEEDS:
     value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256,256))
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    value_optimizer_lr = 0.0003#0.0005#0.003
+    value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
 
     training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.5)
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
-    replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
+    # replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
+    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=100_000, batch_size=32)
     n_warmup_batches = 1#200#5
     update_target_every_steps = 1
-    tau = 0.005
+    tau = 0.001#0.005
     
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
@@ -1032,7 +1060,7 @@ for seed in SEEDS:
         'initial_delta': 0.106417288572204,
         'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10.0,#0.2,#2.0,#0.2,#10.0,
-        'penalty_lambda2': 100.0,#1,#10.0,#1.0,#50.0,
+        'penalty_lambda2': 50.0,#1,#10.0,#1.0,#50.0,
         'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
                                      -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
                                      -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
@@ -1047,7 +1075,7 @@ for seed in SEEDS:
 ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
-torch.save(agent.online_policy_model.state_dict(), "online_policy_model_penalization.pth")
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_penalization.pth")
 
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
 ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
@@ -1079,27 +1107,29 @@ plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
 plt.savefig("Moving_Average_Reward_Penalization.png")
 
-def compute_futures_curve(day, S_t, r_t, delta_t):
-    futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
-    remaining_futures = max(12 - (day // 30), 0)  # Shrinks every 30 days
+def compute_futures_curve_scalar(day, S_t, r_t, delta_t):
+    futures = np.full(12, 0.0, dtype=np.float32)
     for k in range(12):
-        expiration_day = (k+1) * 30  # Expiration at the end of month (1-based index)
+        expiration_day = (k + 1) * 30
         tau = (expiration_day - day) / 360.0
-        if tau < 0:  # Contract expired, skip (remains 0.0)
+        if tau < 0:
             continue
+
         beta_r = (2 * (1 - np.exp(-ksi_r * tau))) / (2 * ksi_r - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)))
         beta_delta = -(1 - np.exp(-kappa_delta * tau)) / kappa_delta
         beta_0 = (theta_r / sigma_r**2) * (2 * np.log(1 - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)) / (2 * ksi_r))
-                                                     + (ksi_r - kappa_r) * tau) \
-                 + (sigma_delta**2 * tau) / (2 * kappa_delta**2) \
-                 - (sigma_s * sigma_delta * rho_1 + theta_delta) * tau / kappa_delta \
-                 - (sigma_s * sigma_delta * rho_1 + theta_delta) * np.exp(-kappa_delta * tau) / kappa_delta**2 \
-                 + (4 * sigma_delta**2 * np.exp(-kappa_delta * tau) - sigma_delta**2 * np.exp(-2 * kappa_delta * tau)) / (4 * kappa_delta**3) \
-                 + (sigma_s * sigma_delta * rho_1 + theta_delta) / kappa_delta**2 \
-                 - 3 * sigma_delta**2 / (4 * kappa_delta**3)
+                 + (ksi_r - kappa_r) * tau) \
+            + (sigma_delta**2 * tau) / (2 * kappa_delta**2) \
+            - (sigma_s * sigma_delta * rho_1 + theta_delta) * tau / kappa_delta \
+            - (sigma_s * sigma_delta * rho_1 + theta_delta) * np.exp(-kappa_delta * tau) / kappa_delta**2 \
+            + (4 * sigma_delta**2 * np.exp(-kappa_delta * tau) - sigma_delta**2 * np.exp(-2 * kappa_delta * tau)) / (4 * kappa_delta**3) \
+            + (sigma_s * sigma_delta * rho_1 + theta_delta) / kappa_delta**2 \
+            - 3 * sigma_delta**2 / (4 * kappa_delta**3)
+
         F_tk = np.exp(np.log(S_t) + seasonal_factors[k] + beta_0 + beta_r * r_t + beta_delta * delta_t)
-        futures_list[:,k] = F_tk
-    return futures_list
+        futures[k] = F_tk
+
+    return futures
 
 # Parameters for the Yan (2002) model
 N_simulations = 100 # Number of simulations
@@ -1135,49 +1165,59 @@ seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.1677247
 
 
 # Simulate state variables using Euler-Maruyama
-S_t = np.zeros((N_simulations, T+1))
-r_t = np.zeros((N_simulations, T+1))
-delta_t = np.zeros((N_simulations, T+1))
-v_t = np.zeros((N_simulations, T+1))
-F_t = np.zeros((N_simulations, T+1, 12))
+# Pre-allocate arrays
+S_t = np.zeros((N_simulations, T + 1))
+r_t = np.zeros((N_simulations, T + 1))
+delta_t = np.zeros((N_simulations, T + 1))
+v_t = np.zeros((N_simulations, T + 1))
+F_t = np.zeros((N_simulations, T + 1, 12))
 
-# Initialize state variables
+# Set initial state
 S_t[:, 0] = initial_spot_price
 r_t[:, 0] = initial_r
 delta_t[:, 0] = initial_delta
 v_t[:, 0] = initial_v
-F_t[:,0,:] = compute_futures_curve(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
-# F_t[:,0,:] = np.tile(np.array([16.92, 16.27, 16.00, 15.95, 16.09, 16.25, 16.76, 17.59, 17.82, 17.97, 18.00, 17.63]), (N_simulations, 1))
+F_t[:, 0, :] = compute_futures_curve(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
 
-W = np.random.default_rng(seed=seed)
-# Simulating process
+# Create one RNG per simulation (aligns with how env would run one episode at a time)
+rngs = [np.random.default_rng(seed + i) for i in range(N_simulations)]
 
-for t in range(1, T+1):
-    dW_1 = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_1
-    dW_r = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_r (interest rate)
-    dW_2 = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_2
-    dW_delta = rho_1 * dW_1 + np.sqrt(1 - rho_1 ** 2) * W.normal(0, np.sqrt(dt), N_simulations)  # For dW_delta (correlated with dW_1)
-    dW_v = rho_2 * dW_2 + np.sqrt(1 - rho_2 ** 2) * W.normal(0, np.sqrt(dt), N_simulations)  # For dW_v (correlated with dW_2)
+for sim in range(N_simulations):
+    S, r, delta, v = S_t[sim, 0], r_t[sim, 0], delta_t[sim, 0], v_t[sim, 0]
     
-    # Probability of jump occurrence
-    dq = W.choice([0, 1], p=[1 - lam * dt, lam * dt], size = N_simulations)
+    for day in range(1, T + 1):
+        rng = rngs[sim]
+        
+        # Match the environment’s RNG call sequence
+        dW_1 = rng.normal(0, np.sqrt(dt))
+        dW_r = rng.normal(0, np.sqrt(dt))
+        dW_2 = rng.normal(0, np.sqrt(dt))
+        dW_delta = rho_1 * dW_1 + np.sqrt(1 - rho_1 ** 2) * rng.normal(0, np.sqrt(dt))
+        dW_v = rho_2 * dW_2 + np.sqrt(1 - rho_2 ** 2) * rng.normal(0, np.sqrt(dt))
 
-    # Jump magnitude: ln(1 + J) ~ N[ln(1 + mu_J) - 0.5 * sigma_J^2, sigma_J^2]
-    ln_1_plus_J = W.normal(np.log(1 + mu_j) - 0.5 * sigma_j ** 2, sigma_j, N_simulations)
-    J = np.exp(ln_1_plus_J) - 1  # Jump size for the spot price
+        dq = rng.choice([0, 1], p=[1 - lam * dt, lam * dt])
+        ln_1_plus_J = rng.normal(np.log(1 + mu_j) - 0.5 * sigma_j**2, sigma_j)
+        J = np.exp(ln_1_plus_J) - 1
+        J_v = rng.exponential(scale=theta)
 
-    J_v = W.exponential(scale=theta, size = N_simulations)
+        dS = (r - delta - lam * mu_j) * S * dt + sigma_s * S * dW_1 + np.sqrt(max(v, 0)) * S * dW_2 + J * S * dq
+        dr = (theta_r - kappa_r * r) * dt + sigma_r * np.sqrt(max(r, 0)) * dW_r
+        ddelta = (theta_delta - kappa_delta * delta) * dt + sigma_delta * dW_delta
+        dv = (theta_v - kappa_v * v) * dt + sigma_v * np.sqrt(max(v, 0)) * dW_v + J_v * dq
 
-    S_t[:, t] = S_t[:, t-1] + (r_t[:, t-1] - delta_t[:, t-1] - lam * mu_j) * S_t[:, t-1] * dt + sigma_s * S_t[:, t-1] * dW_1 + np.sqrt(np.maximum(v_t[:, t-1],0)) * S_t[:, t-1] * dW_2 + J * S_t[:, t-1] * dq
+        # Update states
+        S += dS
+        r += dr
+        delta += ddelta
+        v += dv
 
-    r_t[:, t] = r_t[:, t-1] + (theta_r - kappa_r * r_t[:, t-1]) * dt + sigma_r * np.sqrt(np.maximum(r_t[:, t-1], 0)) * dW_r
+        S_t[sim, day] = S
+        r_t[sim, day] = r
+        delta_t[sim, day] = delta
+        v_t[sim, day] = v
+        F_t[sim, day, :] = compute_futures_curve_scalar(day, S, r, delta)
 
-    delta_t[:, t] = delta_t[:, t-1] + (theta_delta - kappa_delta * delta_t[:, t-1]) * dt + sigma_delta * dW_delta
-
-    v_t[:, t] = v_t[:, t-1] + (theta_v - kappa_v * v_t[:, t-1]) * dt + sigma_v * np.sqrt(np.maximum(v_t[:, t-1], 0)) * dW_v + J_v * dq
-
-    F_t[:, t, :] = compute_futures_curve(t, S_t[:, t], r_t[:, t], delta_t[:, t] )
-
+# Rolling Intrinsic valuation
 N_simulations = 100  # Number of simulations
 n = 12  # Number of months
 T = 360  
@@ -1251,6 +1291,7 @@ V_IE_Rolling = np.mean(CF_IE_Rolling)
 # Display results
 print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE_Rolling:.4f}")
 
+# DRL Valuation
 N_simulations = 100 # Number of simulations
 T = 360  
 N_maturities = 12
@@ -1286,7 +1327,7 @@ for j in range(N_simulations):
             state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
             # env.month = state[0]
             # env.V_t = state[-1]
-            X_tau[j, i, :] = agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+            X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(agent.online_policy_model, state)
             # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
             X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
             # X_tau[j, i, :] = trained_network(state).detach().cpu().numpy()
@@ -1302,7 +1343,7 @@ for j in range(N_simulations):
         state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
         # env.month = state[0]
         # env.V_t = state[-1]
-        X_tau[j, i, :] = agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+        X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
         # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
         X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
         # if i < 12:
@@ -1431,7 +1472,7 @@ for j in range(N_simulations):
             # Compute initial intrinsic value V_I,0 = -F_0 * X_0 for all maturities
             prices = F_t[j, tau, :]
             state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
-            X_tau[j, i, :] = agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+            X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
             # print("X_tau[j, i]:  ",np.round(X_tau[j, i],2))
             effective_V_max = min(V_max, (12 - (i-1)) * I_max)
             lock_mask = np.zeros(N_maturities, dtype=bool)  # all locked by default
@@ -1464,7 +1505,7 @@ for j in range(N_simulations):
         prices = F_t[j, tau, :]
         state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
         # print('i: ', i, ' V_t: ',V_t)
-        X_tau[j, i, :] = agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+        X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
         # print("X_tau[j, i]:  ",np.round(X_tau[j, i],2))
         effective_V_max = min(V_max, (12 - (i-1)) * I_max)
         lock_mask = np.zeros(N_maturities, dtype=bool)  # all locked by default
