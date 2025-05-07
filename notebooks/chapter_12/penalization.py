@@ -916,7 +916,7 @@ class NormalNoiseStrategy:
     Adds exponentially decaying Gaussian noise to actions in a DDPG agent for exploration.
     """
     def __init__(self, bounds, exploration_noise_ratio=0.5, final_noise_ratio=1e-6,
-                 max_episode=200_000, noise_free_last=20000):
+                 max_episode=100_000, noise_free_last=10000):
         self.low = np.array(bounds[0])
         self.high = np.array(bounds[1])
         self.action_range = self.high - self.low
@@ -985,7 +985,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 100,
+        'max_episodes': 100_000,
         'goal_mean_100_reward': 10.0#-15#-150
     }
 
