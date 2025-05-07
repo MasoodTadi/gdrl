@@ -1325,7 +1325,7 @@ S_t[:, 0] = initial_spot_price
 r_t[:, 0] = initial_r
 delta_t[:, 0] = initial_delta
 v_t[:, 0] = initial_v
-F_t[:, 0, :] = compute_futures_curve(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
+F_t[:, 0, :] = compute_futures_curve_scalar(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
 
 # Create one RNG per simulation (aligns with how env would run one episode at a time)
 rngs = [np.random.default_rng(seed + i) for i in range(N_simulations)]
