@@ -1255,6 +1255,28 @@ plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
 plt.savefig("Moving_Average_Reward.png")
 
+def compute_futures_curve(day, S_t, r_t, delta_t):
+    futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
+    remaining_futures = max(12 - (day // 30), 0)  # Shrinks every 30 days
+    for k in range(12):
+        expiration_day = (k+1) * 30  # Expiration at the end of month (1-based index)
+        tau = (expiration_day - day) / 360.0
+        if tau < 0:  # Contract expired, skip (remains 0.0)
+            continue
+        beta_r = (2 * (1 - np.exp(-ksi_r * tau))) / (2 * ksi_r - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)))
+        beta_delta = -(1 - np.exp(-kappa_delta * tau)) / kappa_delta
+        beta_0 = (theta_r / sigma_r**2) * (2 * np.log(1 - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)) / (2 * ksi_r))
+                                                     + (ksi_r - kappa_r) * tau) \
+                 + (sigma_delta**2 * tau) / (2 * kappa_delta**2) \
+                 - (sigma_s * sigma_delta * rho_1 + theta_delta) * tau / kappa_delta \
+                 - (sigma_s * sigma_delta * rho_1 + theta_delta) * np.exp(-kappa_delta * tau) / kappa_delta**2 \
+                 + (4 * sigma_delta**2 * np.exp(-kappa_delta * tau) - sigma_delta**2 * np.exp(-2 * kappa_delta * tau)) / (4 * kappa_delta**3) \
+                 + (sigma_s * sigma_delta * rho_1 + theta_delta) / kappa_delta**2 \
+                 - 3 * sigma_delta**2 / (4 * kappa_delta**3)
+        F_tk = np.exp(np.log(S_t) + seasonal_factors[k] + beta_0 + beta_r * r_t + beta_delta * delta_t)
+        futures_list[:,k] = F_tk
+    return futures_list
+    
 def compute_futures_curve_scalar(day, S_t, r_t, delta_t):
     futures = np.full(12, 0.0, dtype=np.float32)
     for k in range(12):
@@ -1325,7 +1347,7 @@ S_t[:, 0] = initial_spot_price
 r_t[:, 0] = initial_r
 delta_t[:, 0] = initial_delta
 v_t[:, 0] = initial_v
-F_t[:, 0, :] = compute_futures_curve_scalar(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
+F_t[:, 0, :] = compute_futures_curve(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
 
 # Create one RNG per simulation (aligns with how env would run one episode at a time)
 rngs = [np.random.default_rng(seed + i) for i in range(N_simulations)]
