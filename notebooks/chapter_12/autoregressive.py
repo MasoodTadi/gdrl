@@ -1004,8 +1004,8 @@ class NormalNoiseStrategy:
         return action
 
 # SEEDS = (34, 56, 78, 90)
-SEEDS = (56, 78, 90)
-# SEEDS = [90]
+# SEEDS = (56, 78, 90)
+SEEDS = [90]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
@@ -1013,7 +1013,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 12_000,
+        'max_episodes': 100_000,
         'goal_mean_100_reward': 4#-15#-150
     }
 
