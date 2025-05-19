@@ -231,7 +231,6 @@ class TTFGasStorageEnv(gym.Env):
         bounds = [(-W_max, I_max)] * n
     
         CF = 0.0
-        print(0, CF)
         X_tau = np.zeros((len(decision_times), n))
     
         for i, tau in enumerate(decision_times):
@@ -244,7 +243,6 @@ class TTFGasStorageEnv(gym.Env):
             prev_tau = decision_times[i-1]
             # Compute realized P/L from futures position for each maturity
             CF += np.dot((self.F_trajectory[tau] - self.F_trajectory[prev_tau]) , X_tau[i-1])
-            print(i,CF)
             prices = self.F_trajectory[tau].copy()
             zero_price_indices = (prices == 0)
             adjusted_bounds = [(0, 0) if zero_price_indices[k] else bounds[k] for k in range(len(prices))]
@@ -253,7 +251,6 @@ class TTFGasStorageEnv(gym.Env):
             else:
                 X_tau[i] = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -V_t])
                 CF += -self.F_trajectory[tau][i-1] * X_tau[i, i-1]
-                print(i,CF)
             
             V_t += X_tau[i, i-1]
             b = np.hstack([(V_max - V_t) * np.ones(n), -(V_min - V_t) * np.ones(n)])
