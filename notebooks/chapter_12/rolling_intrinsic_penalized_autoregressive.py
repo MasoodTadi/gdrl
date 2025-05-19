@@ -1070,7 +1070,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 100,
+        'max_episodes': 50_000,
         'goal_mean_100_reward': 4.5#-15#-150
     }
 
