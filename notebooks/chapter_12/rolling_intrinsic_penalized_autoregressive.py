@@ -228,7 +228,7 @@ class TTFGasStorageEnv(gym.Env):
         b = np.hstack([(V_max - V_t) * np.ones(n), -(V_min - V_t) * np.ones(n)])
         A_eq = np.ones((1, n))
         b_eq = np.array([V_T - V_t])
-        bounds_base = [(-W_max, I_max)] * n
+        bounds = [(-W_max, I_max)] * n
     
         CF = 0.0
         print(0, CF)
@@ -238,7 +238,7 @@ class TTFGasStorageEnv(gym.Env):
             if i == 0:
                 # Compute initial intrinsic value V_I,0 = -F_0 * X_0 for all maturities
                 prices = self.F_trajectory[tau].copy()
-                X_tau[i] = linprog(prices, A_ub=A, b_ub=b, A_eq=A_eq, b_eq=b_eq, bounds=bounds_base,  method="highs").x 
+                X_tau[i] = linprog(prices, A_ub=A, b_ub=b, A_eq=A_eq, b_eq=b_eq, bounds=bounds,  method="highs").x 
                 continue
 
             prev_tau = decision_times[i-1]
