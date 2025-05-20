@@ -1070,8 +1070,8 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 50_000,
-        'goal_mean_100_reward': 4.5#-15#-150
+        'max_episodes': 10_000,
+        'goal_mean_100_reward': 4.2#-15#-150
     }
 
     policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256))
@@ -1090,10 +1090,10 @@ for seed in SEEDS:
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
     # replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
-    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=100_000, batch_size=64)
+    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=100_000, batch_size=32)
     n_warmup_batches = 1#200#5
     update_target_every_steps = 1
-    tau = 0.001#0.005
+    tau = 0.005
     
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
@@ -1146,7 +1146,7 @@ for seed in SEEDS:
         'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-        'penalty_lambda_riv': 1.0,
+        'penalty_lambda_riv': 5.0,
         'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
                                      -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
                                      -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
@@ -1161,7 +1161,7 @@ for seed in SEEDS:
 ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
-torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive.pth")
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized.pth")
 
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
 ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
@@ -1191,7 +1191,7 @@ axs[0].set_title('Moving Avg Reward (Training)')
 axs[1].set_title('Moving Avg Reward (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
-plt.savefig("Moving_Average_Reward_Autoregressive.png")
+plt.savefig("Moving_Average_Reward_Autoregressive_Penalized.png")
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
     futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
@@ -1495,4 +1495,4 @@ plt.ylabel("Realized Reservoir Value")
 plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
-plt.savefig("Reinforcement_Learning_Value_Autoregressive.png")
+plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized.png")
