@@ -1074,12 +1074,12 @@ for seed in SEEDS:
         'goal_mean_100_reward': 4.2#-15#-150
     }
 
-    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256))
+    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=[256])
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.0003#0.0005#0.003
 
-    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256,256,256))
+    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=[256])
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
