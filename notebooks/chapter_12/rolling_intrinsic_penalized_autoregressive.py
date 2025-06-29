@@ -1074,12 +1074,12 @@ for seed in SEEDS:
         'goal_mean_100_reward': 4.2#-15#-150
     }
 
-    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256))
+    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256,256))
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.0003#0.0005#0.003
 
-    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256,256))
+    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256,256,256))
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
@@ -1142,7 +1142,7 @@ for seed in SEEDS:
         'seed': seed,
         'initial_spot_price': np.exp(2.9479),
         'initial_r': 0.15958620269619,
-        'initial_delta': 0.106417288572204 / 3,
+        'initial_delta': 0.106417288572204,
         'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
@@ -1263,7 +1263,7 @@ mu_j = 0.0137146728855484
 seed = 34
 initial_spot_price = np.exp(2.9479)
 initial_r = 0.15958620269619
-initial_delta =  0.106417288572204 / 3
+initial_delta =  0.106417288572204
 initial_v =  0.0249967313173077
 
 ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
