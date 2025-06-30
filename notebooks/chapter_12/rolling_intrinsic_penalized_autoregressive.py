@@ -1182,6 +1182,7 @@ for seed in SEEDS:
         'initial_v': 0.2,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
+        'penalty_lambda_riv': 5.0,
         'monthly_seasonal_factors': np.zeros(12)
     }
     env = TTFGasStorageEnv(params)
