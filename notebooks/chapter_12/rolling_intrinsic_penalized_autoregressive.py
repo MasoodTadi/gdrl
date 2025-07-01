@@ -1061,8 +1061,8 @@ class NormalNoiseStrategy:
         return action
 
 # SEEDS = (34, 56, 78, 90)
-# SEEDS = (56, 78, 90)
-SEEDS = [90]
+SEEDS = (56, 78, 90)
+# SEEDS = [90]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
@@ -1070,7 +1070,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 12_000,
+        'max_episodes': 25_000,
         'goal_mean_100_reward': np.inf#4.2#-15#-150
     }
 
@@ -1548,6 +1548,7 @@ V_IE = np.mean(CF_IE)
 # Display results
 print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE:.4f}")
 
+plt.style.use('default')  # Reset to classic white background style 
 plt.figure(figsize=(14, 6))
 plt.plot(CF_IE, color='grey', label="Realized RL Value")
 plt.plot(CF_IE_Rolling, color='black', label="Rolling Intrinsic Value")
