@@ -1070,7 +1070,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 10_000,
+        'max_episodes': 12_000,
         'goal_mean_100_reward': np.inf#4.2#-15#-150
     }
 
@@ -1151,6 +1151,7 @@ for seed in SEEDS:
     #                                  -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
     #                                  -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
     # }
+
     params = {
         'n_months': 12,
         'V_min': 0,
@@ -1159,31 +1160,33 @@ for seed in SEEDS:
         'W_max': 0.4,
         'I_max': 0.4,
         # 'storage_capacity': 100000,
-        'kappa_r': 0.4,
-        'sigma_r': 1.0,
-        'theta_r': 0.001,
-        'kappa_delta': 0.1,
-        'sigma_delta': 2.0,
-        'theta_delta': -0.5,
-        'sigma_s': 1.0,
-        'rho_1': 0.5,
-        'rho_2': -0.3,
-        'sigma_v': 1.0,
-        'theta_v': 0.1,
-        'theta': 0.05,
-        'kappa_v': 0.1,
-        'lam': 1.0,
-        'sigma_j': 0.1,
-        'mu_j': 0.05,
+        'kappa_r': 0.492828372105622,
+        'sigma_r': 0.655898616135014,
+        'theta_r': 0.000588276156660185,
+        'kappa_delta': 1.17723166341479,
+        'sigma_delta': 0.103663918307669, #1.03663918307669,
+        'theta_delta': -0.213183673388138,
+        'sigma_s': 0.791065501973918,
+        'rho_1': 0.899944474373156,
+        'rho_2': -0.306810849087325,
+        'sigma_v': 0.825941396204049,
+        'theta_v': 0.0505685591761352,
+        'theta': 0.00640705687096142,
+        'kappa_v': 2.36309244973169,
+        'lam': 0.638842070975342,
+        'sigma_j': 0.032046147726045,
+        'mu_j': 0.0137146728855484,
         'seed': seed,
-        'initial_spot_price': np.exp(2.9),
-        'initial_r': 0.05,
-        'initial_delta': -0.5,
-        'initial_v': 0.2,
+        'initial_spot_price': np.exp(2.9479),
+        'initial_r': 0.15958620269619,
+        'initial_delta': 0.0106417288572204, #0.106417288572204,
+        'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-        'penalty_lambda_riv': 5.0,
-        'monthly_seasonal_factors': np.zeros(12)
+        'penalty_lambda_riv': 10. #5.0,
+        'monthly_seasonal_factors': np.array([-0.106616824924423/6, -0.152361004102492/6, -0.167724706188117/6, -0.16797984045645/6,
+                                     -0.159526180248348/6, -0.13927943487493/6, -0.0953402986114613/6, -0.0474646801238288/6, 
+                                     -0.0278622280543003/6, 0.000000/6, -0.00850263509128089/6, -0.0409638719325969/6])
     }
     env = TTFGasStorageEnv(params)
     #result, final_eval_score, training_time, wallclock_time = agent.train(make_env_fn, make_env_kargs, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
@@ -1305,30 +1308,32 @@ dt = 1/(T+1)
 #                              -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
 #                              -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969  ])
 
-kappa_r = 0.4
-sigma_r = 1.0
-theta_r = 0.001
-kappa_delta= 0.1
-sigma_delta = 2.0
-theta_delta = -0.5
-sigma_s = 1.0
-rho_1 = 0.5
-rho_2 = -0.3
-sigma_v = 1.0
-theta_v = 0.1
-theta = 0.05
-kappa_v = 0.1
-lam = 1.0
-sigma_j = 0.1
-mu_j = 0.05
+kappa_r = 0.492828372105622
+sigma_r = 0.655898616135014
+theta_r = 0.000588276156660185
+kappa_delta= 1.17723166341479
+sigma_delta = 0.103663918307669 #1.03663918307669
+theta_delta = -0.213183673388138
+sigma_s = 0.791065501973918
+rho_1 = 0.899944474373156
+rho_2 = -0.306810849087325
+sigma_v = 0.825941396204049
+theta_v = 0.0505685591761352
+theta = 0.00640705687096142
+kappa_v = 2.36309244973169
+lam = 0.638842070975342
+sigma_j = 0.032046147726045
+mu_j = 0.0137146728855484
 seed = 34
-initial_spot_price = np.exp(2.9)
-initial_r = 0.05
-initial_delta =  -0.5
-initial_v =  0.2
+initial_spot_price = np.exp(2.9479)
+initial_r = 0.15958620269619
+initial_delta =  0.0106417288572204 #0.106417288572204
+initial_v =  0.0249967313173077
 
 ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
-seasonal_factors = np.zeros(12)
+seasonal_factors = np.array([ -0.106616824924423/6, -0.152361004102492/6, -0.167724706188117/6, -0.16797984045645/6,
+                             -0.159526180248348/6, -0.13927943487493/6, -0.0953402986114613/6, -0.0474646801238288/6,
+                             -0.0278622280543003/6, 0.000000/6, -0.00850263509128089/6, -0.0409638719325969/6  ])
 
 # Simulate state variables using Euler-Maruyama
 # Pre-allocate arrays
