@@ -1061,8 +1061,8 @@ class NormalNoiseStrategy:
         return action
 
 # SEEDS = (34, 56, 78, 90)
-SEEDS = (56, 78, 90)
-# SEEDS = [90]
+# SEEDS = (56, 78, 90)
+SEEDS = [90]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
@@ -1183,7 +1183,7 @@ for seed in SEEDS:
         'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-        'penalty_lambda_riv': 10, #5.0,
+        'penalty_lambda_riv': 100, #5.0,
         'monthly_seasonal_factors': np.array([-0.106616824924423/6, -0.152361004102492/6, -0.167724706188117/6, -0.16797984045645/6,
                                      -0.159526180248348/6, -0.13927943487493/6, -0.0953402986114613/6, -0.0474646801238288/6, 
                                      -0.0278622280543003/6, 0.000000/6, -0.00850263509128089/6, -0.0409638719325969/6])
