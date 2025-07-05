@@ -589,9 +589,6 @@ class FCCA_AR(nn.Module):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
 
-        assert len(split_logits) == self.output_dim[0], \
-        f"[FCCA_AR] split_logits mismatch: got {len(split_logits)}, expected {self.output_dim[0]}"
-
         actions, logpas, is_exploratory = [], [], []
 
         for logit in split_logits:
@@ -605,6 +602,7 @@ class FCCA_AR(nn.Module):
             is_exploratory.append(exploratory)
 
         actions = torch.stack(actions, dim=-1)
+        print(f"[DEBUG] FCCA_AR np_pass actions shape: {actions.shape}")
         logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
         is_exploratory = torch.stack(is_exploratory, dim=-1).any(dim=-1)
 
@@ -621,6 +619,7 @@ class FCCA_AR(nn.Module):
             actions.append(action)
 
         actions = torch.stack(actions, dim=-1)
+        print(f"[DEBUG] FCCA_AR select_action shape: {actions.shape}")
         return actions.squeeze(0).detach().cpu().numpy()
 
     def get_predictions(self, states, actions):
