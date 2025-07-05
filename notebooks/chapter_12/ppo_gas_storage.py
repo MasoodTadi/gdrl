@@ -1467,7 +1467,7 @@ for j in range(N_simulations):
             state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
             # env.month = state[0]
             # env.V_t = state[-1]
-            X_tau[j, i, :] = np.array([env.action_meanings_list[i][best_agent.select_greedy_action(state)[i]] for i in range(env.n_months)])
+            X_tau[j, i, :] = np.array([env.action_meanings_list[i][best_agent.policy_model.select_greedy_action(state)[i]] for i in range(env.n_months)])
             # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
             X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
             # X_tau[j, i, :] = trained_network(state).detach().cpu().numpy()
@@ -1483,7 +1483,7 @@ for j in range(N_simulations):
         state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
         # env.month = state[0]
         # env.V_t = state[-1]
-        X_tau[j, i, :] = np.array([env.action_meanings_list[i][best_agent.select_greedy_action(state)[i]] for i in range(env.n_months)])
+        X_tau[j, i, :] = np.array([env.action_meanings_list[i][best_agent.policy_model.select_greedy_action(state)[i]] for i in range(env.n_months)])
         # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
         X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
         # if i < 12:
