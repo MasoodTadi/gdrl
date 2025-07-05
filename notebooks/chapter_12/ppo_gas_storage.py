@@ -576,7 +576,10 @@ class FCCA_AR(nn.Module):
             logit = self.output_heads[i](head_input).squeeze(1)
             logits.append(logit)
 
-        return torch.stack(logits, dim=1)  # shape: (batch, n_actions)
+        output = torch.stack(logits, dim=1)
+        assert output.shape[1] == self.output_dim[0], \
+            f"[FCCA_AR] output dim mismatch: got {output.shape[1]}, expected {self.output_dim[0]}"
+        return output # shape: (batch, n_actions)
 
     def split_logits(self, logits):
         # Here we treat each output head as scalar so no further splitting needed
@@ -585,6 +588,9 @@ class FCCA_AR(nn.Module):
     def np_pass(self, states):
         logits = self.forward(states)
         split_logits = self.split_logits(logits)
+
+        assert len(split_logits) == self.output_dim[0], \
+        f"[FCCA_AR] split_logits mismatch: got {len(split_logits)}, expected {self.output_dim[0]}"
 
         actions, logpas, is_exploratory = [], [], []
 
@@ -746,6 +752,9 @@ class PPO():
         self.tau = tau
         self.n_workers = n_workers
 
+        print(f"[DEBUG] PPO expects nA = {nA}")
+        print(f"[DEBUG] FCCA_AR output_dim = {self.policy_model.output_dim}")
+        
     def optimize_model(self):
         states, actions, returns, gaes, logpas = self.episode_buffer.get_stacks()
         values = self.value_model(states).detach()
