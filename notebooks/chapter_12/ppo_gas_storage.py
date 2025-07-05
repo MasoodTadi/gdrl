@@ -1447,7 +1447,7 @@ V_T = 0  # Final balance condition
 V_I = np.zeros((N_simulations, len(decision_times)))  # Intrinsic value per maturity
 CF_IE = np.zeros(N_simulations)  # Total cash-flow per simulation
 X_tau = np.zeros((N_simulations, len(decision_times), N_maturities))
-
+env = TTFGasStorageEnv(params)
 # Loop over all simulations
 for j in range(N_simulations):
     V_t = V_0
