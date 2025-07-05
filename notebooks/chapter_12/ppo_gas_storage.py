@@ -751,9 +751,6 @@ class PPO():
         self.entropy_loss_weight = entropy_loss_weight
         self.tau = tau
         self.n_workers = n_workers
-
-        print(f"[DEBUG] PPO expects nA = {nA}")
-        print(f"[DEBUG] FCCA_AR output_dim = {self.policy_model.output_dim}")
         
     def optimize_model(self):
         states, actions, returns, gaes, logpas = self.episode_buffer.get_stacks()
@@ -841,6 +838,10 @@ class PPO():
     
         # nS, nA = env.observation_space.shape, env.action_space.n
         nS, nA = env.observation_space.shape, env.action_space.nvec
+
+        print(f"[DEBUG] PPO expects nS = {nS}")
+        print(f"[DEBUG] PPO expects nA = {nA}")
+
         self.episode_timestep, self.episode_reward = [], []
         self.episode_seconds, self.episode_exploration = [], []
         self.evaluation_scores = []
