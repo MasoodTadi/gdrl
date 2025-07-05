@@ -524,194 +524,131 @@ class FCCA(nn.Module):
         return greedy_actions.squeeze(0).detach().cpu().numpy()
 
 class FCCA_AR(nn.Module):
-    """
-    Fully Connected Categorical Autoregressive Actor for PPO.
-    Each output dimension is sampled sequentially, 
-    conditioned on the hidden state + past outputs.
-    """
-    def __init__(self,
+    def __init__(self, 
                  input_dim,
-                 output_dim,  # tuple: e.g., (12,)
-                 hidden_dims=(64, 64),
+                 output_dim,   # tuple like (12,)
+                 hidden_dims=(256, 256),
                  activation_fc=F.relu):
         super(FCCA_AR, self).__init__()
         self.activation_fc = activation_fc
-        self.output_dim = output_dim  # tuple, e.g., (12,)
-        self.n_actions = output_dim[0]
 
         self.input_layer = nn.Linear(input_dim[0], hidden_dims[0])
+
         self.hidden_layers = nn.ModuleList()
         for i in range(len(hidden_dims) - 1):
-            self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i+1]))
+            self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
 
-        # One output head per action step, with extra input for autoregressive context
-        self.output_heads = nn.ModuleList([
-            nn.Linear(hidden_dims[-1] + j, 1)  # Add j context dimensions
-            for j in range(1, self.n_actions + 1)
-        ])
+        self.output_heads = nn.ModuleList()
+        # First output head: no prev action
+        self.output_heads.append(nn.Linear(hidden_dims[-1], 1))
+        # Rest output heads: hidden + prev action
+        for _ in range(1, output_dim[0]):
+            self.output_heads.append(nn.Linear(hidden_dims[-1] + 1, 1))
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.output_dim = output_dim
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
         self.to(self.device)
 
     def _format(self, states):
-        x = states
-        if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x, dtype=torch.float32, device=self.device)
-        if x.ndim == 1:
-            x = x.unsqueeze(0)
-        return x
+        if not isinstance(states, torch.Tensor):
+            states = torch.tensor(states, dtype=torch.float32, device=self.device)
+        if states.ndim == 1:
+            states = states.unsqueeze(0)
+        return states
 
     def forward(self, states):
-        """
-        Returns logits for the whole chain (for training) — used in `get_predictions`.
-        """
-        states = self._format(states)
-        batch_size = states.size(0)
-
-        # Shared base
-        x = self.activation_fc(self.input_layer(states))
-        for hidden in self.hidden_layers:
-            x = self.activation_fc(hidden(x))
+        x = self._format(states)
+        x = self.activation_fc(self.input_layer(x))
+        for hidden_layer in self.hidden_layers:
+            x = self.activation_fc(hidden_layer(x))
 
         logits = []
-        prev_samples = torch.zeros((batch_size, 0), device=self.device)
+        # First head: no prev_action
+        head_input = x
+        logit = self.output_heads[0](head_input).squeeze(1)
+        logits.append(logit)
 
-        for j, head in enumerate(self.output_heads):
-            # Autoregressive context: append all prev samples (one-hot)
-            if j > 0:
-                # For categorical, you usually embed prev samples
-                # Here: assume prev samples are categorical integers in [0, 1] for binary actions
-                # If actions have >2 categories, use an embedding instead.
-                context = prev_samples.float()
-            else:
-                context = torch.zeros((batch_size, 0), device=self.device)
-
-            head_input = torch.cat([x, context], dim=1)
-            logit = head(head_input).squeeze(1)  # (batch_size,)
+        for i in range(1, len(self.output_heads)):
+            prev_action = logits[-1].detach()  # detach to prevent backprop loop
+            head_input = torch.cat([x, prev_action.unsqueeze(1)], dim=1)
+            logit = self.output_heads[i](head_input).squeeze(1)
             logits.append(logit)
 
-            # Use mode for context or dummy during `forward`; real sampling happens in np_pass.
-            prev_samples = torch.cat([prev_samples, logit.detach().round().unsqueeze(1)], dim=1)
+        return torch.stack(logits, dim=1)  # shape: (batch, n_actions)
 
-        logits = torch.stack(logits, dim=1)  # (batch_size, n_actions)
-        return logits
+    def split_logits(self, logits):
+        # Here we treat each output head as scalar so no further splitting needed
+        return [logits[:, i] for i in range(logits.shape[1])]
 
     def np_pass(self, states):
-        """
-        Sample actions sequentially + compute log-probs.
-        """
-        states = self._format(states)
-        batch_size = states.size(0)
-
-        # Shared base
-        x = self.activation_fc(self.input_layer(states))
-        for hidden in self.hidden_layers:
-            x = self.activation_fc(hidden(x))
+        logits = self.forward(states)
+        split_logits = self.split_logits(logits)
 
         actions, logpas, is_exploratory = [], [], []
-        prev_samples = torch.zeros((batch_size, 0), device=self.device)
 
-        for j, head in enumerate(self.output_heads):
-            if j > 0:
-                context = prev_samples.float()
-            else:
-                context = torch.zeros((batch_size, 0), device=self.device)
-
-            head_input = torch.cat([x, context], dim=1)
-            logit = head(head_input)  # (batch_size, 1)
-            logits = torch.cat([-logit, logit], dim=1)  # Binary: logits for [0, 1]
-
-            dist = torch.distributions.Categorical(logits=logits)
+        for logit in split_logits:
+            dist = torch.distributions.Categorical(logits=logit.unsqueeze(-1))
             action = dist.sample()
             logpa = dist.log_prob(action)
-            exploratory = (action != logits.argmax(dim=-1))
+            exploratory = (action != logit.argmax(dim=-1))
 
             actions.append(action)
             logpas.append(logpa)
             is_exploratory.append(exploratory)
 
-            prev_samples = torch.cat([prev_samples, action.unsqueeze(1).float()], dim=1)
-
-        actions = torch.stack(actions, dim=1)
-        logpas = torch.stack(logpas, dim=1).sum(dim=-1)
-        is_exploratory = torch.stack(is_exploratory, dim=1).any(dim=-1)
+        actions = torch.stack(actions, dim=-1)
+        logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
+        is_exploratory = torch.stack(is_exploratory, dim=-1).any(dim=-1)
 
         return actions.cpu().numpy(), logpas.cpu().numpy(), is_exploratory.cpu().numpy()
 
     def select_action(self, states):
-        actions, _, _ = self.np_pass(states)
-        return actions
+        logits = self.forward(states)
+        split_logits = self.split_logits(logits)
 
-    def select_greedy_action(self, states):
-        """
-        Greedy = mode for each dimension.
-        """
-        states = self._format(states)
-        batch_size = states.size(0)
+        actions = []
+        for logit in split_logits:
+            dist = torch.distributions.Categorical(logits=logit.unsqueeze(-1))
+            action = dist.sample()
+            actions.append(action)
 
-        x = self.activation_fc(self.input_layer(states))
-        for hidden in self.hidden_layers:
-            x = self.activation_fc(hidden(x))
-
-        greedy_actions = []
-        prev_samples = torch.zeros((batch_size, 0), device=self.device)
-
-        for j, head in enumerate(self.output_heads):
-            if j > 0:
-                context = prev_samples.float()
-            else:
-                context = torch.zeros((batch_size, 0), device=self.device)
-
-            head_input = torch.cat([x, context], dim=1)
-            logit = head(head_input)  # (batch_size, 1)
-            logits = torch.cat([-logit, logit], dim=1)  # Binary: logits for [0, 1]
-
-            action = logits.argmax(dim=-1)
-            greedy_actions.append(action)
-            prev_samples = torch.cat([prev_samples, action.unsqueeze(1).float()], dim=1)
-
-        greedy_actions = torch.stack(greedy_actions, dim=1)
-        return greedy_actions.squeeze(0).cpu().numpy()
+        actions = torch.stack(actions, dim=-1)
+        return actions.squeeze(0).detach().cpu().numpy()
 
     def get_predictions(self, states, actions):
-        """
-        Computes joint log-prob & mean entropy for PPO update.
-        """
         states = self._format(states)
+        logits = self.forward(states)
+        split_logits = self.split_logits(logits)
+
         if not isinstance(actions, torch.Tensor):
             actions = torch.tensor(actions, device=self.device, dtype=torch.long)
-        batch_size = states.size(0)
 
-        x = self.activation_fc(self.input_layer(states))
-        for hidden in self.hidden_layers:
-            x = self.activation_fc(hidden(x))
+        logpas = []
+        entropies = []
 
-        logpas, entropies = [], []
-        prev_samples = torch.zeros((batch_size, 0), device=self.device)
+        for idx, logit in enumerate(split_logits):
+            dist = torch.distributions.Categorical(logits=logit.unsqueeze(-1))
+            logpas.append(dist.log_prob(actions[:, idx]))
+            entropies.append(dist.entropy())
 
-        for j, head in enumerate(self.output_heads):
-            if j > 0:
-                context = prev_samples.float()
-            else:
-                context = torch.zeros((batch_size, 0), device=self.device)
-
-            head_input = torch.cat([x, context], dim=1)
-            logit = head(head_input)  # (batch_size, 1)
-            logits = torch.cat([-logit, logit], dim=1)  # Binary: logits for [0, 1]
-
-            dist = torch.distributions.Categorical(logits=logits)
-            logpa = dist.log_prob(actions[:, j])
-            entropy = dist.entropy()
-
-            logpas.append(logpa)
-            entropies.append(entropy)
-
-            prev_samples = torch.cat([prev_samples, actions[:, j].unsqueeze(1).float()], dim=1)
-
-        logpas = torch.stack(logpas, dim=1).sum(dim=-1)
-        entropies = torch.stack(entropies, dim=1).mean(dim=-1)
+        logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
+        entropies = torch.stack(entropies, dim=-1).mean(dim=-1)
 
         return logpas, entropies
+
+    def select_greedy_action(self, states):
+        logits = self.forward(states)
+        split_logits = self.split_logits(logits)
+
+        greedy_actions = []
+        for logit in split_logits:
+            greedy_action = logit.argmax(dim=-1)
+            greedy_actions.append(greedy_action)
+
+        greedy_actions = torch.stack(greedy_actions, dim=-1)
+        return greedy_actions.squeeze(0).detach().cpu().numpy()
 
 class FCV(nn.Module):
     def __init__(self,
