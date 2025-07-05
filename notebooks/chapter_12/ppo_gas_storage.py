@@ -523,6 +523,196 @@ class FCCA(nn.Module):
         greedy_actions = torch.stack(greedy_actions, dim=-1)
         return greedy_actions.squeeze(0).detach().cpu().numpy()
 
+class FCCA_AR(nn.Module):
+    """
+    Fully Connected Categorical Autoregressive Actor for PPO.
+    Each output dimension is sampled sequentially, 
+    conditioned on the hidden state + past outputs.
+    """
+    def __init__(self,
+                 input_dim,
+                 output_dim,  # tuple: e.g., (12,)
+                 hidden_dims=(64, 64),
+                 activation_fc=F.relu):
+        super(FCCA_AR, self).__init__()
+        self.activation_fc = activation_fc
+        self.output_dim = output_dim  # tuple, e.g., (12,)
+        self.n_actions = output_dim[0]
+
+        self.input_layer = nn.Linear(input_dim[0], hidden_dims[0])
+        self.hidden_layers = nn.ModuleList()
+        for i in range(len(hidden_dims) - 1):
+            self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i+1]))
+
+        # One output head per action step, with extra input for autoregressive context
+        self.output_heads = nn.ModuleList([
+            nn.Linear(hidden_dims[-1] + j, 1)  # Add j context dimensions
+            for j in range(1, self.n_actions + 1)
+        ])
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(self.device)
+
+    def _format(self, states):
+        x = states
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x, dtype=torch.float32, device=self.device)
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+        return x
+
+    def forward(self, states):
+        """
+        Returns logits for the whole chain (for training) — used in `get_predictions`.
+        """
+        states = self._format(states)
+        batch_size = states.size(0)
+
+        # Shared base
+        x = self.activation_fc(self.input_layer(states))
+        for hidden in self.hidden_layers:
+            x = self.activation_fc(hidden(x))
+
+        logits = []
+        prev_samples = torch.zeros((batch_size, 0), device=self.device)
+
+        for j, head in enumerate(self.output_heads):
+            # Autoregressive context: append all prev samples (one-hot)
+            if j > 0:
+                # For categorical, you usually embed prev samples
+                # Here: assume prev samples are categorical integers in [0, 1] for binary actions
+                # If actions have >2 categories, use an embedding instead.
+                context = prev_samples.float()
+            else:
+                context = torch.zeros((batch_size, 0), device=self.device)
+
+            head_input = torch.cat([x, context], dim=1)
+            logit = head(head_input).squeeze(1)  # (batch_size,)
+            logits.append(logit)
+
+            # Use mode for context or dummy during `forward`; real sampling happens in np_pass.
+            prev_samples = torch.cat([prev_samples, logit.detach().round().unsqueeze(1)], dim=1)
+
+        logits = torch.stack(logits, dim=1)  # (batch_size, n_actions)
+        return logits
+
+    def np_pass(self, states):
+        """
+        Sample actions sequentially + compute log-probs.
+        """
+        states = self._format(states)
+        batch_size = states.size(0)
+
+        # Shared base
+        x = self.activation_fc(self.input_layer(states))
+        for hidden in self.hidden_layers:
+            x = self.activation_fc(hidden(x))
+
+        actions, logpas, is_exploratory = [], [], []
+        prev_samples = torch.zeros((batch_size, 0), device=self.device)
+
+        for j, head in enumerate(self.output_heads):
+            if j > 0:
+                context = prev_samples.float()
+            else:
+                context = torch.zeros((batch_size, 0), device=self.device)
+
+            head_input = torch.cat([x, context], dim=1)
+            logit = head(head_input)  # (batch_size, 1)
+            logits = torch.cat([-logit, logit], dim=1)  # Binary: logits for [0, 1]
+
+            dist = torch.distributions.Categorical(logits=logits)
+            action = dist.sample()
+            logpa = dist.log_prob(action)
+            exploratory = (action != logits.argmax(dim=-1))
+
+            actions.append(action)
+            logpas.append(logpa)
+            is_exploratory.append(exploratory)
+
+            prev_samples = torch.cat([prev_samples, action.unsqueeze(1).float()], dim=1)
+
+        actions = torch.stack(actions, dim=1)
+        logpas = torch.stack(logpas, dim=1).sum(dim=-1)
+        is_exploratory = torch.stack(is_exploratory, dim=1).any(dim=-1)
+
+        return actions.cpu().numpy(), logpas.cpu().numpy(), is_exploratory.cpu().numpy()
+
+    def select_action(self, states):
+        actions, _, _ = self.np_pass(states)
+        return actions
+
+    def select_greedy_action(self, states):
+        """
+        Greedy = mode for each dimension.
+        """
+        states = self._format(states)
+        batch_size = states.size(0)
+
+        x = self.activation_fc(self.input_layer(states))
+        for hidden in self.hidden_layers:
+            x = self.activation_fc(hidden(x))
+
+        greedy_actions = []
+        prev_samples = torch.zeros((batch_size, 0), device=self.device)
+
+        for j, head in enumerate(self.output_heads):
+            if j > 0:
+                context = prev_samples.float()
+            else:
+                context = torch.zeros((batch_size, 0), device=self.device)
+
+            head_input = torch.cat([x, context], dim=1)
+            logit = head(head_input)  # (batch_size, 1)
+            logits = torch.cat([-logit, logit], dim=1)  # Binary: logits for [0, 1]
+
+            action = logits.argmax(dim=-1)
+            greedy_actions.append(action)
+            prev_samples = torch.cat([prev_samples, action.unsqueeze(1).float()], dim=1)
+
+        greedy_actions = torch.stack(greedy_actions, dim=1)
+        return greedy_actions.squeeze(0).cpu().numpy()
+
+    def get_predictions(self, states, actions):
+        """
+        Computes joint log-prob & mean entropy for PPO update.
+        """
+        states = self._format(states)
+        if not isinstance(actions, torch.Tensor):
+            actions = torch.tensor(actions, device=self.device, dtype=torch.long)
+        batch_size = states.size(0)
+
+        x = self.activation_fc(self.input_layer(states))
+        for hidden in self.hidden_layers:
+            x = self.activation_fc(hidden(x))
+
+        logpas, entropies = [], []
+        prev_samples = torch.zeros((batch_size, 0), device=self.device)
+
+        for j, head in enumerate(self.output_heads):
+            if j > 0:
+                context = prev_samples.float()
+            else:
+                context = torch.zeros((batch_size, 0), device=self.device)
+
+            head_input = torch.cat([x, context], dim=1)
+            logit = head(head_input)  # (batch_size, 1)
+            logits = torch.cat([-logit, logit], dim=1)  # Binary: logits for [0, 1]
+
+            dist = torch.distributions.Categorical(logits=logits)
+            logpa = dist.log_prob(actions[:, j])
+            entropy = dist.entropy()
+
+            logpas.append(logpa)
+            entropies.append(entropy)
+
+            prev_samples = torch.cat([prev_samples, actions[:, j].unsqueeze(1).float()], dim=1)
+
+        logpas = torch.stack(logpas, dim=1).sum(dim=-1)
+        entropies = torch.stack(entropies, dim=1).mean(dim=-1)
+
+        return logpas, entropies
+
 class FCV(nn.Module):
     def __init__(self,
                  input_dim,
@@ -888,7 +1078,7 @@ for seed in SEEDS:
         # 'env_name': 'LunarLander-v3',
         'gamma': 1.00,
         'max_minutes': np.inf,
-        'max_episodes': 100,
+        'max_episodes': 1000,
         'goal_mean_100_reward': 50
     }
 
@@ -1056,6 +1246,30 @@ def compute_futures_curve(day, S_t, r_t, delta_t):
         F_tk = np.exp(np.log(S_t) + seasonal_factors[k] + beta_0 + beta_r * r_t + beta_delta * delta_t)
         futures_list[:,k] = F_tk
     return futures_list
+    
+def compute_futures_curve_scalar(day, S_t, r_t, delta_t):
+    futures = np.full(12, 0.0, dtype=np.float32)
+    for k in range(12):
+        expiration_day = (k + 1) * 30
+        tau = (expiration_day - day) / 360.0
+        if tau < 0:
+            continue
+
+        beta_r = (2 * (1 - np.exp(-ksi_r * tau))) / (2 * ksi_r - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)))
+        beta_delta = -(1 - np.exp(-kappa_delta * tau)) / kappa_delta
+        beta_0 = (theta_r / sigma_r**2) * (2 * np.log(1 - (ksi_r - kappa_r) * (1 - np.exp(-ksi_r * tau)) / (2 * ksi_r))
+                 + (ksi_r - kappa_r) * tau) \
+            + (sigma_delta**2 * tau) / (2 * kappa_delta**2) \
+            - (sigma_s * sigma_delta * rho_1 + theta_delta) * tau / kappa_delta \
+            - (sigma_s * sigma_delta * rho_1 + theta_delta) * np.exp(-kappa_delta * tau) / kappa_delta**2 \
+            + (4 * sigma_delta**2 * np.exp(-kappa_delta * tau) - sigma_delta**2 * np.exp(-2 * kappa_delta * tau)) / (4 * kappa_delta**3) \
+            + (sigma_s * sigma_delta * rho_1 + theta_delta) / kappa_delta**2 \
+            - 3 * sigma_delta**2 / (4 * kappa_delta**3)
+
+        F_tk = np.exp(np.log(S_t) + seasonal_factors[k] + beta_0 + beta_r * r_t + beta_delta * delta_t)
+        futures[k] = F_tk
+
+    return futures
 
 # Parameters for the Yan (2002) model
 N_simulations = 100 # Number of simulations
@@ -1091,49 +1305,59 @@ seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.1677247
 
 
 # Simulate state variables using Euler-Maruyama
-S_t = np.zeros((N_simulations, T+1))
-r_t = np.zeros((N_simulations, T+1))
-delta_t = np.zeros((N_simulations, T+1))
-v_t = np.zeros((N_simulations, T+1))
-F_t = np.zeros((N_simulations, T+1, 12))
+# Pre-allocate arrays
+S_t = np.zeros((N_simulations, T + 1))
+r_t = np.zeros((N_simulations, T + 1))
+delta_t = np.zeros((N_simulations, T + 1))
+v_t = np.zeros((N_simulations, T + 1))
+F_t = np.zeros((N_simulations, T + 1, 12))
 
-# Initialize state variables
+# Set initial state
 S_t[:, 0] = initial_spot_price
 r_t[:, 0] = initial_r
 delta_t[:, 0] = initial_delta
 v_t[:, 0] = initial_v
-F_t[:,0,:] = compute_futures_curve(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
-# F_t[:,0,:] = np.tile(np.array([16.92, 16.27, 16.00, 15.95, 16.09, 16.25, 16.76, 17.59, 17.82, 17.97, 18.00, 17.63]), (N_simulations, 1))
+F_t[:, 0, :] = compute_futures_curve(0, S_t[:, 0], r_t[:, 0], delta_t[:, 0])
 
-W = np.random.default_rng(seed=seed)
-# Simulating process
+# Create one RNG per simulation (aligns with how env would run one episode at a time)
+rngs = [np.random.default_rng(seed + i) for i in range(N_simulations)]
 
-for t in range(1, T+1):
-    dW_1 = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_1
-    dW_r = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_r (interest rate)
-    dW_2 = W.normal(0, np.sqrt(dt), N_simulations)  # For dW_2
-    dW_delta = rho_1 * dW_1 + np.sqrt(1 - rho_1 ** 2) * W.normal(0, np.sqrt(dt), N_simulations)  # For dW_delta (correlated with dW_1)
-    dW_v = rho_2 * dW_2 + np.sqrt(1 - rho_2 ** 2) * W.normal(0, np.sqrt(dt), N_simulations)  # For dW_v (correlated with dW_2)
+for sim in range(N_simulations):
+    S, r, delta, v = S_t[sim, 0], r_t[sim, 0], delta_t[sim, 0], v_t[sim, 0]
     
-    # Probability of jump occurrence
-    dq = W.choice([0, 1], p=[1 - lam * dt, lam * dt], size = N_simulations)
+    for day in range(1, T + 1):
+        rng = rngs[sim]
+        
+        # Match the environment’s RNG call sequence
+        dW_1 = rng.normal(0, np.sqrt(dt))
+        dW_r = rng.normal(0, np.sqrt(dt))
+        dW_2 = rng.normal(0, np.sqrt(dt))
+        dW_delta = rho_1 * dW_1 + np.sqrt(1 - rho_1 ** 2) * rng.normal(0, np.sqrt(dt))
+        dW_v = rho_2 * dW_2 + np.sqrt(1 - rho_2 ** 2) * rng.normal(0, np.sqrt(dt))
 
-    # Jump magnitude: ln(1 + J) ~ N[ln(1 + mu_J) - 0.5 * sigma_J^2, sigma_J^2]
-    ln_1_plus_J = W.normal(np.log(1 + mu_j) - 0.5 * sigma_j ** 2, sigma_j, N_simulations)
-    J = np.exp(ln_1_plus_J) - 1  # Jump size for the spot price
+        dq = rng.choice([0, 1], p=[1 - lam * dt, lam * dt])
+        ln_1_plus_J = rng.normal(np.log(1 + mu_j) - 0.5 * sigma_j**2, sigma_j)
+        J = np.exp(ln_1_plus_J) - 1
+        J_v = rng.exponential(scale=theta)
 
-    J_v = W.exponential(scale=theta, size = N_simulations)
+        dS = (r - delta - lam * mu_j) * S * dt + sigma_s * S * dW_1 + np.sqrt(max(v, 0)) * S * dW_2 + J * S * dq
+        dr = (theta_r - kappa_r * r) * dt + sigma_r * np.sqrt(max(r, 0)) * dW_r
+        ddelta = (theta_delta - kappa_delta * delta) * dt + sigma_delta * dW_delta
+        dv = (theta_v - kappa_v * v) * dt + sigma_v * np.sqrt(max(v, 0)) * dW_v + J_v * dq
 
-    S_t[:, t] = S_t[:, t-1] + (r_t[:, t-1] - delta_t[:, t-1] - lam * mu_j) * S_t[:, t-1] * dt + sigma_s * S_t[:, t-1] * dW_1 + np.sqrt(np.maximum(v_t[:, t-1],0)) * S_t[:, t-1] * dW_2 + J * S_t[:, t-1] * dq
+        # Update states
+        S += dS
+        r += dr
+        delta += ddelta
+        v += dv
 
-    r_t[:, t] = r_t[:, t-1] + (theta_r - kappa_r * r_t[:, t-1]) * dt + sigma_r * np.sqrt(np.maximum(r_t[:, t-1], 0)) * dW_r
+        S_t[sim, day] = S
+        r_t[sim, day] = r
+        delta_t[sim, day] = delta
+        v_t[sim, day] = v
+        F_t[sim, day, :] = compute_futures_curve_scalar(day, S, r, delta)
 
-    delta_t[:, t] = delta_t[:, t-1] + (theta_delta - kappa_delta * delta_t[:, t-1]) * dt + sigma_delta * dW_delta
-
-    v_t[:, t] = v_t[:, t-1] + (theta_v - kappa_v * v_t[:, t-1]) * dt + sigma_v * np.sqrt(np.maximum(v_t[:, t-1], 0)) * dW_v + J_v * dq
-
-    F_t[:, t, :] = compute_futures_curve(t, S_t[:, t], r_t[:, t], delta_t[:, t] )
-
+# Rolling Intrinsic valuation
 N_simulations = 100  # Number of simulations
 n = 12  # Number of months
 T = 360  
@@ -1207,6 +1431,7 @@ V_IE_Rolling = np.mean(CF_IE_Rolling)
 # Display results
 print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE_Rolling:.4f}")
 
+# DRL Valuation
 N_simulations = 100 # Number of simulations
 T = 360  
 N_maturities = 12
@@ -1242,7 +1467,7 @@ for j in range(N_simulations):
             state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
             # env.month = state[0]
             # env.V_t = state[-1]
-            X_tau[j, i, :] = best_agent.policy_model.select_greedy_action(state)
+            X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(agent.online_policy_model, state)
             # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
             X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
             # X_tau[j, i, :] = trained_network(state).detach().cpu().numpy()
@@ -1258,7 +1483,7 @@ for j in range(N_simulations):
         state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
         # env.month = state[0]
         # env.V_t = state[-1]
-        X_tau[j, i, :] = best_agent.policy_model.select_greedy_action(state)
+        X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
         # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
         X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
         # if i < 12:
@@ -1296,8 +1521,9 @@ plt.style.use('default')
 plt.figure(figsize=(14, 6))
 plt.plot(CF_IE, color='grey', label="Realized RL Value")
 plt.plot(CF_IE_Rolling, color='black', label="Rolling Intrinsic Value")
-plt.axhline(V_IE, color='red', linestyle='--', linewidth=2, label="Average Value")
-plt.axhline(1.962, color='blue', linestyle='--', linewidth=2, label="Intrinsic Value")
+plt.axhline(V_IE, color='red', linestyle='--', linewidth=2, label="RL Average Value")
+plt.axhline(V_IE_Rolling, color='red', linestyle='--', linewidth=2, label="RI Average Value")
+plt.axhline(V_I_Rolling[0, 0], color='blue', linestyle='--', linewidth=2, label="Intrinsic Value")
 plt.xlabel("Simulation ID")
 plt.ylabel("Realized Reservoir Value")
 plt.title("Reinforcement Learning Value Calculation")
