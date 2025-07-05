@@ -1019,8 +1019,8 @@ for seed in SEEDS:
         'goal_mean_100_reward': 50
     }
 
-    policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256)) 
-    # policy_model_fn = lambda nS, nA: FCCA_AR(nS, nA, hidden_dims=(256, 256))
+    # policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256)) 
+    policy_model_fn = lambda nS, nA: FCCA_AR(nS, nA, hidden_dims=(256, 256))
     policy_model_max_grad_norm = float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.0001#0.0003
