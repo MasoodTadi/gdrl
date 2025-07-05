@@ -1113,7 +1113,7 @@ for seed in SEEDS:
     entropy_loss_weight = 0.0005#0.0001#0.01
     # entropy_loss_weight = float(os.environ.get('ENTROPY_LOSS_WEIGHT', 0.0001))
     tau = 0.97
-    n_workers = 16#64#8
+    n_workers = 64#8
 
     params = {
         'n_months': 12,
@@ -1467,7 +1467,7 @@ for j in range(N_simulations):
             state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
             # env.month = state[0]
             # env.V_t = state[-1]
-            X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+            X_tau[j, i, :] = np.array([env.action_meanings_list[i][best_agent.select_greedy_action(state)[i]] for i in range(env.n_months)])
             # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
             X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
             # X_tau[j, i, :] = trained_network(state).detach().cpu().numpy()
@@ -1483,7 +1483,7 @@ for j in range(N_simulations):
         state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
         # env.month = state[0]
         # env.V_t = state[-1]
-        X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
+        X_tau[j, i, :] = np.array([env.action_meanings_list[i][best_agent.select_greedy_action(state)[i]] for i in range(env.n_months)])
         # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
         X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
         # if i < 12:
