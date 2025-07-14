@@ -589,6 +589,89 @@ class FCDPAutoregressive(nn.Module):
 
         return torch.stack(actions, dim=1)
 
+class FCDPAutoregressive(nn.Module):
+    def __init__(self, 
+                 input_dim,
+                 action_bounds,
+                 hidden_dims=(512, 512, 256, 128), 
+                 activation_fc=F.leaky_relu):
+        super(FCDPAutoregressive, self).__init__()
+        self.activation_fc = activation_fc
+        self.env_min, self.env_max = action_bounds
+
+        self.input_layer = nn.Linear(input_dim, hidden_dims[0])
+        self.hidden_layers = nn.ModuleList()
+        for i in range(len(hidden_dims) - 1):
+            self.hidden_layers.append(nn.Sequential(
+                nn.Linear(hidden_dims[i], hidden_dims[i + 1]),
+                nn.LayerNorm(hidden_dims[i + 1])
+            ))
+
+        self.output_heads = nn.ModuleList([
+            nn.Linear(hidden_dims[-1] + 1, 1) for _ in range(len(self.env_max) - 1)
+        ])
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
+        self.to(self.device)
+
+        self.env_min = torch.tensor(self.env_min, device=self.device, dtype=torch.float32)
+        self.env_max = torch.tensor(self.env_max, device=self.device, dtype=torch.float32)
+
+        self.V_min = torch.tensor(0.0, device=self.device)
+        self.V_max = torch.tensor(1.0, device=self.device)
+        self.I_max = torch.tensor(0.4, device=self.device)
+        self.W_max = torch.tensor(0.4, device=self.device)
+
+    def _normalize(self, state):
+        state = state.clone()
+        state[:, 0] /= 11.0  # Normalize month
+        state[:, 1:13] /= torch.clamp(state[:, 1:13].max(dim=1, keepdim=True).values, min=1e-6)  # Normalize prices
+        state[:, -1] /= self.V_max  # Normalize V_t
+        return state
+
+    def _format(self, state):
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state, dtype=torch.float32, device=self.device)
+        if state.ndim == 1:
+            state = state.unsqueeze(0)
+        return self._normalize(state)
+
+    def forward(self, state):
+        state = self._format(state)
+        batch_size = state.size(0)
+        t = (state[:, 0] * 11).long()
+        V_t = state[:, -1] * self.V_max  # De-normalize
+
+        x = self.activation_fc(self.input_layer(state))
+        for layer in self.hidden_layers:
+            x = self.activation_fc(layer(x))
+
+        actions = []
+        cum_V = V_t.clone()
+
+        for j in range(11):
+            mask = (j + 1 >= t).float().unsqueeze(1)
+            upper_volume = torch.minimum((12 - j - 1) * self.I_max, self.V_max) - cum_V
+            lower_volume = self.V_min - cum_V
+
+            final_min = torch.maximum(lower_volume, -self.W_max)
+            final_max = torch.minimum(upper_volume, self.I_max)
+
+            xj_input = torch.cat([x, cum_V.unsqueeze(1)], dim=1)
+            raw_output = self.output_heads[j](xj_input).squeeze(1)
+            output = torch.tanh(raw_output)
+            scaled = (output + 1) / 2 * (final_max - final_min) + final_min
+            bounded = scaled * mask.squeeze(1)
+            actions.append(bounded)
+            cum_V += bounded
+
+        x12 = -V_t - torch.stack(actions, dim=1).sum(dim=1)
+        x12 = torch.clamp(x12, min=-self.W_max, max=self.I_max)
+        actions.append(x12)
+
+        return torch.stack(actions, dim=1)
+        
 class PrioritizedReplayBuffer():
     def __init__(self, 
                  max_samples=10000, 
@@ -822,6 +905,12 @@ class DDPG():
         self.online_value_model = self.value_model_fn(nS, nA)
         self.target_policy_model = self.policy_model_fn(nS, action_bounds)
         self.online_policy_model = self.policy_model_fn(nS, action_bounds)
+
+        # Load pretrained actor weights into both online and target policy models
+        pretrained_path = "fcdp_actor_ri.pth"  # path to your pretrained file
+        self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
+        self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
+
         self.update_networks(tau=1.0)
         self.value_optimizer = self.value_optimizer_fn(self.online_value_model, 
                                                        self.value_optimizer_lr)        
@@ -1070,11 +1159,12 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 25_000,
+        'max_episodes': 10_000,
         'goal_mean_100_reward': np.inf#4.2#-15#-150
     }
 
-    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
+    # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
+    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.0003#0.0005#0.003
@@ -1115,42 +1205,42 @@ for seed in SEEDS:
 
     #make_env_fn, make_env_kargs = get_make_env_fn(env_name=env_name)
     # Example usage
-    # params = {
-    #     'n_months': 12,
-    #     'V_min': 0,
-    #     'V_max': 1,
-    #     'V_0': 0,
-    #     'W_max': 0.4,
-    #     'I_max': 0.4,
-    #     # 'storage_capacity': 100000,
-    #     'kappa_r': 0.492828372105622,
-    #     'sigma_r': 0.655898616135014,
-    #     'theta_r': 0.000588276156660185,
-    #     'kappa_delta': 1.17723166341479,
-    #     'sigma_delta': 1.03663918307669,
-    #     'theta_delta': -0.213183673388138,
-    #     'sigma_s': 0.791065501973918,
-    #     'rho_1': 0.899944474373156,
-    #     'rho_2': -0.306810849087325,
-    #     'sigma_v': 0.825941396204049,
-    #     'theta_v': 0.0505685591761352,
-    #     'theta': 0.00640705687096142,
-    #     'kappa_v': 2.36309244973169,
-    #     'lam': 0.638842070975342,
-    #     'sigma_j': 0.032046147726045,
-    #     'mu_j': 0.0137146728855484,
-    #     'seed': seed,
-    #     'initial_spot_price': np.exp(2.9479),
-    #     'initial_r': 0.15958620269619,
-    #     'initial_delta': 0.106417288572204,
-    #     'initial_v': 0.0249967313173077,
-    #     'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
-    #     'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-    #     'penalty_lambda_riv': 5.0,
-    #     'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
-    #                                  -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
-    #                                  -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
-    # }
+    params = {
+        'n_months': 12,
+        'V_min': 0,
+        'V_max': 1,
+        'V_0': 0,
+        'W_max': 0.4,
+        'I_max': 0.4,
+        # 'storage_capacity': 100000,
+        'kappa_r': 0.492828372105622,
+        'sigma_r': 0.655898616135014,
+        'theta_r': 0.000588276156660185,
+        'kappa_delta': 1.17723166341479,
+        'sigma_delta': 1.03663918307669,
+        'theta_delta': -0.213183673388138,
+        'sigma_s': 0.791065501973918,
+        'rho_1': 0.899944474373156,
+        'rho_2': -0.306810849087325,
+        'sigma_v': 0.825941396204049,
+        'theta_v': 0.0505685591761352,
+        'theta': 0.00640705687096142,
+        'kappa_v': 2.36309244973169,
+        'lam': 0.638842070975342,
+        'sigma_j': 0.032046147726045,
+        'mu_j': 0.0137146728855484,
+        'seed': seed,
+        'initial_spot_price': np.exp(2.9479),
+        'initial_r': 0.15958620269619,
+        'initial_delta': 0.106417288572204,
+        'initial_v': 0.0249967313173077,
+        'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
+        'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
+        'penalty_lambda_riv': 5.0,
+        'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+                                     -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
+                                     -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
+    }
 
     # params = {
     #     'n_months': 12,
@@ -1188,40 +1278,40 @@ for seed in SEEDS:
     #                                  -0.159526180248348/6, -0.13927943487493/6, -0.0953402986114613/6, -0.0474646801238288/6, 
     #                                  -0.0278622280543003/6, 0.000000/6, -0.00850263509128089/6, -0.0409638719325969/6])
     # }
-    params = {
-        'n_months': 12,
-        'V_min': 0,
-        'V_max': 1,
-        'V_0': 0,
-        'W_max': 0.4,
-        'I_max': 0.4,
-        # 'storage_capacity': 100000,
-        'kappa_r': 0.492828372105622,
-        'sigma_r': 0.655898616135014,
-        'theta_r': 0.000588276156660185,
-        'kappa_delta': 1.17723166341479,
-        'sigma_delta': 1.03663918307669,
-        'theta_delta': -0.213183673388138,
-        'sigma_s': 0.791065501973918,
-        'rho_1': 0.899944474373156,
-        'rho_2': -0.306810849087325,
-        'sigma_v': 0.825941396204049,
-        'theta_v': 0.0505685591761352 * 10,
-        'theta': 0.00640705687096142,
-        'kappa_v': 2.36309244973169,
-        'lam': 0.638842070975342,
-        'sigma_j': 0.032046147726045,
-        'mu_j': 0.0137146728855484,
-        'seed': seed,
-        'initial_spot_price': np.exp(2.9479),
-        'initial_r': 0.15958620269619,
-        'initial_delta': 0.106417288572204,
-        'initial_v': 0.0249967313173077 * 10,
-        'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
-        'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-        'penalty_lambda_riv': 10.0,
-        'monthly_seasonal_factors': np.array([0,0,0,0,0,0,0,0,0,0,0,0])
-    }
+    # params = {
+    #     'n_months': 12,
+    #     'V_min': 0,
+    #     'V_max': 1,
+    #     'V_0': 0,
+    #     'W_max': 0.4,
+    #     'I_max': 0.4,
+    #     # 'storage_capacity': 100000,
+    #     'kappa_r': 0.492828372105622,
+    #     'sigma_r': 0.655898616135014,
+    #     'theta_r': 0.000588276156660185,
+    #     'kappa_delta': 1.17723166341479,
+    #     'sigma_delta': 1.03663918307669,
+    #     'theta_delta': -0.213183673388138,
+    #     'sigma_s': 0.791065501973918,
+    #     'rho_1': 0.899944474373156,
+    #     'rho_2': -0.306810849087325,
+    #     'sigma_v': 0.825941396204049,
+    #     'theta_v': 0.0505685591761352 * 10,
+    #     'theta': 0.00640705687096142,
+    #     'kappa_v': 2.36309244973169,
+    #     'lam': 0.638842070975342,
+    #     'sigma_j': 0.032046147726045,
+    #     'mu_j': 0.0137146728855484,
+    #     'seed': seed,
+    #     'initial_spot_price': np.exp(2.9479),
+    #     'initial_r': 0.15958620269619,
+    #     'initial_delta': 0.106417288572204,
+    #     'initial_v': 0.0249967313173077 * 10,
+    #     'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
+    #     'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
+    #     'penalty_lambda_riv': 10.0,
+    #     'monthly_seasonal_factors': np.array([0,0,0,0,0,0,0,0,0,0,0,0])
+    # }
     env = TTFGasStorageEnv(params)
     #result, final_eval_score, training_time, wallclock_time = agent.train(make_env_fn, make_env_kargs, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
     result, final_eval_score, training_time, wallclock_time = agent.train(env, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
@@ -1315,32 +1405,32 @@ N_simulations = 100 # Number of simulations
 T = 360  
 dt = 1/(T+1)
 # Model Parameters (Assumed)
-# kappa_r = 0.492828372105622
-# sigma_r = 0.655898616135014
-# theta_r = 0.000588276156660185
-# kappa_delta= 1.17723166341479
-# sigma_delta = 1.03663918307669
-# theta_delta = -0.213183673388138
-# sigma_s = 0.791065501973918
-# rho_1 = 0.899944474373156
-# rho_2 = -0.306810849087325
-# sigma_v = 0.825941396204049
-# theta_v = 0.0505685591761352
-# theta = 0.00640705687096142
-# kappa_v = 2.36309244973169
-# lam = 0.638842070975342
-# sigma_j = 0.032046147726045
-# mu_j = 0.0137146728855484
-# seed = 34
-# initial_spot_price = np.exp(2.9479)
-# initial_r = 0.15958620269619
-# initial_delta =  0.106417288572204
-# initial_v =  0.0249967313173077
+kappa_r = 0.492828372105622
+sigma_r = 0.655898616135014
+theta_r = 0.000588276156660185
+kappa_delta= 1.17723166341479
+sigma_delta = 1.03663918307669
+theta_delta = -0.213183673388138
+sigma_s = 0.791065501973918
+rho_1 = 0.899944474373156
+rho_2 = -0.306810849087325
+sigma_v = 0.825941396204049
+theta_v = 0.0505685591761352
+theta = 0.00640705687096142
+kappa_v = 2.36309244973169
+lam = 0.638842070975342
+sigma_j = 0.032046147726045
+mu_j = 0.0137146728855484
+seed = 34
+initial_spot_price = np.exp(2.9479)
+initial_r = 0.15958620269619
+initial_delta =  0.106417288572204
+initial_v =  0.0249967313173077
 
-# ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
-# seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
-#                              -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
-#                              -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969  ])
+ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
+seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+                             -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
+                             -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969  ])
 
 # kappa_r = 0.492828372105622
 # sigma_r = 0.655898616135014
@@ -1369,30 +1459,30 @@ dt = 1/(T+1)
 #                              -0.159526180248348/6, -0.13927943487493/6, -0.0953402986114613/6, -0.0474646801238288/6,
 #                              -0.0278622280543003/6, 0.000000/6, -0.00850263509128089/6, -0.0409638719325969/6  ])
 
-kappa_r = 0.492828372105622
-sigma_r = 0.655898616135014
-theta_r = 0.000588276156660185
-kappa_delta= 1.17723166341479
-sigma_delta = 1.03663918307669
-theta_delta = -0.213183673388138
-sigma_s = 0.791065501973918
-rho_1 = 0.899944474373156
-rho_2 = -0.306810849087325
-sigma_v = 0.825941396204049
-theta_v = 10 * 0.0505685591761352
-theta = 0.00640705687096142
-kappa_v = 2.36309244973169
-lam = 0.638842070975342
-sigma_j = 0.032046147726045
-mu_j = 0.0137146728855484
-seed = 34
-initial_spot_price = np.exp(2.9479)
-initial_r = 0.15958620269619
-initial_delta =  0.106417288572204
-initial_v =  10 * 0.0249967313173077
+# kappa_r = 0.492828372105622
+# sigma_r = 0.655898616135014
+# theta_r = 0.000588276156660185
+# kappa_delta= 1.17723166341479
+# sigma_delta = 1.03663918307669
+# theta_delta = -0.213183673388138
+# sigma_s = 0.791065501973918
+# rho_1 = 0.899944474373156
+# rho_2 = -0.306810849087325
+# sigma_v = 0.825941396204049
+# theta_v = 10 * 0.0505685591761352
+# theta = 0.00640705687096142
+# kappa_v = 2.36309244973169
+# lam = 0.638842070975342
+# sigma_j = 0.032046147726045
+# mu_j = 0.0137146728855484
+# seed = 34
+# initial_spot_price = np.exp(2.9479)
+# initial_r = 0.15958620269619
+# initial_delta =  0.106417288572204
+# initial_v =  10 * 0.0249967313173077
 
-ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
-seasonal_factors = np.array([0,0,0,0,0,0,0,0,0,0,0,0])
+# ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
+# seasonal_factors = np.array([0,0,0,0,0,0,0,0,0,0,0,0])
 
 # Simulate state variables using Euler-Maruyama
 # Pre-allocate arrays
