@@ -614,3 +614,5 @@ for epoch in range(500):
         
     scheduler.step()  # Update learning rate
     print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}")
+
+torch.save(actor.state_dict(), "fcdp_actor_ri.pth")
