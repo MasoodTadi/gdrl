@@ -1240,7 +1240,7 @@ for seed in SEEDS:
         'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-        'penalty_lambda_riv': 5.0,
+        'penalty_lambda_riv': 0.0,#5.0,
         'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
                                      -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
                                      -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
@@ -1705,7 +1705,8 @@ plt.style.use('default')  # Reset to classic white background style
 plt.figure(figsize=(14, 6))
 plt.plot(CF_IE, color='grey', label="Realized RL Value")
 plt.plot(CF_IE_Rolling, color='black', label="Rolling Intrinsic Value")
-plt.axhline(V_IE, color='red', linestyle='--', linewidth=2, label="Average Value")
+plt.axhline(V_IE, color='green', linestyle='--', linewidth=2, label="RL Average Value")
+plt.axhline(V_IE_Rolling, color='red', linestyle='--', linewidth=2, label="RI Average Value")
 plt.axhline(1.962, color='blue', linestyle='--', linewidth=2, label="Intrinsic Value")
 plt.xlabel("Simulation ID")
 plt.ylabel("Realized Reservoir Value")
