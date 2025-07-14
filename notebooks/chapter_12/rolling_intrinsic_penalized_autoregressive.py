@@ -459,19 +459,23 @@ class FCQV(nn.Module):
     def __init__(self, 
                  input_dim, 
                  output_dim, 
-                 hidden_dims=(32,32), 
-                 activation_fc=F.relu):
+                 hidden_dims=(512, 512, 256, 128),
+                 activation_fc=F.leaky_relu):
         super(FCQV, self).__init__()
         self.activation_fc = activation_fc
 
         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
+        self.input_norm = nn.LayerNorm(hidden_dims[0])
+        
         self.hidden_layers = nn.ModuleList()
+        self.hidden_norms = nn.ModuleList()
         for i in range(len(hidden_dims)-1):
             in_dim = hidden_dims[i]
             if i == 0: 
                 in_dim += output_dim
             hidden_layer = nn.Linear(in_dim, hidden_dims[i+1])
             self.hidden_layers.append(hidden_layer)
+            self.hidden_norms.append(nn.LayerNorm(hidden_dims[i + 1]))
         self.output_layer = nn.Linear(hidden_dims[-1], 1)
 
         device = "cpu"
@@ -496,7 +500,7 @@ class FCQV(nn.Module):
 
     def forward(self, state, action):
         x, u = self._format(state, action)
-        x = self.activation_fc(self.input_layer(x))
+        x = self.activation_fc(self.input_norm(self.input_layer(x)))
         for i, hidden_layer in enumerate(self.hidden_layers):
             if i == 0:
                 x = torch.cat((x, u), dim=1)
@@ -512,82 +516,82 @@ class FCQV(nn.Module):
         is_terminals = torch.from_numpy(is_terminals).float().to(self.device)
         return states, actions, rewards, new_states, is_terminals
 
-class FCDPAutoregressive(nn.Module):
-    def __init__(self, 
-                 input_dim,
-                 action_bounds,
-                 hidden_dims=(32, 32), 
-                 activation_fc=F.relu):
-        super(FCDPAutoregressive, self).__init__()
-        self.activation_fc = activation_fc
-        self.env_min, self.env_max = action_bounds
+# class FCDPAutoregressive(nn.Module):
+#     def __init__(self, 
+#                  input_dim,
+#                  action_bounds,
+#                  hidden_dims=(32, 32), 
+#                  activation_fc=F.relu):
+#         super(FCDPAutoregressive, self).__init__()
+#         self.activation_fc = activation_fc
+#         self.env_min, self.env_max = action_bounds
 
-        self.input_layer = nn.Linear(input_dim, hidden_dims[0])
-        self.hidden_layers = nn.ModuleList()
-        for i in range(len(hidden_dims) - 1):
-            self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+#         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
+#         self.hidden_layers = nn.ModuleList()
+#         for i in range(len(hidden_dims) - 1):
+#             self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
 
-        # One output head per action dimension
-        self.output_heads = nn.ModuleList([
-            nn.Linear(hidden_dims[-1] + 1, 1) for _ in range(len(self.env_max) - 1)
-        ])
+#         # One output head per action dimension
+#         self.output_heads = nn.ModuleList([
+#             nn.Linear(hidden_dims[-1] + 1, 1) for _ in range(len(self.env_max) - 1)
+#         ])
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.device = torch.device(device)
-        self.to(self.device)
+#         device = "cuda" if torch.cuda.is_available() else "cpu"
+#         self.device = torch.device(device)
+#         self.to(self.device)
 
-        self.env_min = torch.tensor(self.env_min, device=self.device, dtype=torch.float32)
-        self.env_max = torch.tensor(self.env_max, device=self.device, dtype=torch.float32)
+#         self.env_min = torch.tensor(self.env_min, device=self.device, dtype=torch.float32)
+#         self.env_max = torch.tensor(self.env_max, device=self.device, dtype=torch.float32)
 
-        self.V_min = torch.tensor(0.0, device=self.device)
-        self.V_max = torch.tensor(1.0, device=self.device)
-        self.I_max = torch.tensor(0.4, device=self.device)
-        self.W_max = torch.tensor(0.4, device=self.device)
+#         self.V_min = torch.tensor(0.0, device=self.device)
+#         self.V_max = torch.tensor(1.0, device=self.device)
+#         self.I_max = torch.tensor(0.4, device=self.device)
+#         self.W_max = torch.tensor(0.4, device=self.device)
 
-    def _format(self, state):
-        if not isinstance(state, torch.Tensor):
-            state = torch.tensor(state, dtype=torch.float32, device=self.device)
-        if state.ndim == 1:
-            state = state.unsqueeze(0)
-        return state
+#     def _format(self, state):
+#         if not isinstance(state, torch.Tensor):
+#             state = torch.tensor(state, dtype=torch.float32, device=self.device)
+#         if state.ndim == 1:
+#             state = state.unsqueeze(0)
+#         return state
 
-    def forward(self, state):
-        state = self._format(state)
-        batch_size = state.size(0)
-        t = state[:, 0].long()
-        V_t = state[:, -1].clone()
+#     def forward(self, state):
+#         state = self._format(state)
+#         batch_size = state.size(0)
+#         t = state[:, 0].long()
+#         V_t = state[:, -1].clone()
 
-        # Shared base network
-        x = self.activation_fc(self.input_layer(state))
-        for hidden_layer in self.hidden_layers:
-            x = self.activation_fc(hidden_layer(x))
+#         # Shared base network
+#         x = self.activation_fc(self.input_layer(state))
+#         for hidden_layer in self.hidden_layers:
+#             x = self.activation_fc(hidden_layer(x))
 
-        actions = []
-        cum_V = V_t.clone()
+#         actions = []
+#         cum_V = V_t.clone()
 
-        for j in range(11):
-            mask = (j + 1 >= t).float().unsqueeze(1)
-            upper_volume = torch.minimum((12 - j -1) * self.I_max, self.V_max) - cum_V
-            lower_volume = self.V_min - cum_V
+#         for j in range(11):
+#             mask = (j + 1 >= t).float().unsqueeze(1)
+#             upper_volume = torch.minimum((12 - j -1) * self.I_max, self.V_max) - cum_V
+#             lower_volume = self.V_min - cum_V
 
-            # Combine with box constraints
-            final_min = torch.maximum(lower_volume, -self.W_max)
-            final_max = torch.minimum(upper_volume, self.I_max)
+#             # Combine with box constraints
+#             final_min = torch.maximum(lower_volume, -self.W_max)
+#             final_max = torch.minimum(upper_volume, self.I_max)
 
-            xj_input = torch.cat([x, cum_V.unsqueeze(1)], dim=1)
-            raw_output = self.output_heads[j](xj_input).squeeze(1)
-            output = torch.tanh(raw_output)  # in [-1, 1]
-            scaled = (output + 1) / 2 * (final_max - final_min) + final_min
-            bounded = scaled * mask.squeeze(1)
-            actions.append(bounded)
-            cum_V += bounded
+#             xj_input = torch.cat([x, cum_V.unsqueeze(1)], dim=1)
+#             raw_output = self.output_heads[j](xj_input).squeeze(1)
+#             output = torch.tanh(raw_output)  # in [-1, 1]
+#             scaled = (output + 1) / 2 * (final_max - final_min) + final_min
+#             bounded = scaled * mask.squeeze(1)
+#             actions.append(bounded)
+#             cum_V += bounded
 
-        # Compute last action to satisfy equality constraint
-        x12 = -V_t - torch.stack(actions, dim=1).sum(dim=1)
-        x12 = torch.clamp(x12, min=-self.W_max, max=self.I_max)
-        actions.append(x12)
+#         # Compute last action to satisfy equality constraint
+#         x12 = -V_t - torch.stack(actions, dim=1).sum(dim=1)
+#         x12 = torch.clamp(x12, min=-self.W_max, max=self.I_max)
+#         actions.append(x12)
 
-        return torch.stack(actions, dim=1)
+#         return torch.stack(actions, dim=1)
 
 class FCDPAutoregressive(nn.Module):
     def __init__(self, 
@@ -1159,7 +1163,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 10_000,
+        'max_episodes': 12_000,
         'goal_mean_100_reward': np.inf#4.2#-15#-150
     }
 
@@ -1169,11 +1173,11 @@ for seed in SEEDS:
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.0003#0.0005#0.003
 
-    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256,256)) 
+    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(512, 512, 256, 128)) 
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.3, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.5, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
                                                                                                                               noise_free_last=0.2 * environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
