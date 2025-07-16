@@ -911,7 +911,7 @@ class DDPG():
         self.online_policy_model = self.policy_model_fn(nS, action_bounds)
 
         # Load pretrained actor weights into both online and target policy models
-        pretrained_path = "fcdp_actor_ri.pth"  # path to your pretrained file
+        pretrained_path = "fcdp_actor_ri-2.pth"  # path to your pretrained file
         self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
         self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
 
@@ -1227,7 +1227,7 @@ for seed in SEEDS:
         'rho_1': 0.899944474373156,
         'rho_2': -0.306810849087325,
         'sigma_v': 0.825941396204049,
-        'theta_v': 0.0505685591761352,
+        'theta_v': 0.0505685591761352 * 10, #0.0505685591761352,
         'theta': 0.00640705687096142,
         'kappa_v': 2.36309244973169,
         'lam': 0.638842070975342,
@@ -1237,13 +1237,14 @@ for seed in SEEDS:
         'initial_spot_price': np.exp(2.9479),
         'initial_r': 0.15958620269619,
         'initial_delta': 0.106417288572204,
-        'initial_v': 0.0249967313173077,
+        'initial_v': 0.0249967313173077 * 10, #0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
         'penalty_lambda_riv': 0.0,#5.0,
-        'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
-                                     -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
-                                     -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
+        # 'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+        #                              -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
+        #                              -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
+        'monthly_seasonal_factors': np.array([0,0,0,0,0,0,0,0,0,0,0,0])
     }
 
     # params = {
@@ -1356,7 +1357,7 @@ axs[0].set_title('Moving Avg Reward (Training)')
 axs[1].set_title('Moving Avg Reward (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
-plt.savefig("Moving_Average_Reward_Autoregressive_Penalized.png")
+plt.savefig("Moving_Average_Reward_Autoregressive_Penalized-Copy2.png")
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
     futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
@@ -1408,33 +1409,33 @@ def compute_futures_curve_scalar(day, S_t, r_t, delta_t):
 N_simulations = 100 # Number of simulations
 T = 360  
 dt = 1/(T+1)
-# Model Parameters (Assumed)
-kappa_r = 0.492828372105622
-sigma_r = 0.655898616135014
-theta_r = 0.000588276156660185
-kappa_delta= 1.17723166341479
-sigma_delta = 1.03663918307669
-theta_delta = -0.213183673388138
-sigma_s = 0.791065501973918
-rho_1 = 0.899944474373156
-rho_2 = -0.306810849087325
-sigma_v = 0.825941396204049
-theta_v = 0.0505685591761352
-theta = 0.00640705687096142
-kappa_v = 2.36309244973169
-lam = 0.638842070975342
-sigma_j = 0.032046147726045
-mu_j = 0.0137146728855484
-seed = 1
-initial_spot_price = np.exp(2.9479)
-initial_r = 0.15958620269619
-initial_delta =  0.106417288572204
-initial_v =  0.0249967313173077
+# # Model Parameters (Assumed)
+# kappa_r = 0.492828372105622
+# sigma_r = 0.655898616135014
+# theta_r = 0.000588276156660185
+# kappa_delta= 1.17723166341479
+# sigma_delta = 1.03663918307669
+# theta_delta = -0.213183673388138
+# sigma_s = 0.791065501973918
+# rho_1 = 0.899944474373156
+# rho_2 = -0.306810849087325
+# sigma_v = 0.825941396204049
+# theta_v = 0.0505685591761352
+# theta = 0.00640705687096142
+# kappa_v = 2.36309244973169
+# lam = 0.638842070975342
+# sigma_j = 0.032046147726045
+# mu_j = 0.0137146728855484
+# seed = 1
+# initial_spot_price = np.exp(2.9479)
+# initial_r = 0.15958620269619
+# initial_delta =  0.106417288572204
+# initial_v =  0.0249967313173077
 
-ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
-seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
-                             -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
-                             -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969  ])
+# ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
+# seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+#                              -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
+#                              -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969  ])
 
 # kappa_r = 0.492828372105622
 # sigma_r = 0.655898616135014
@@ -1463,30 +1464,30 @@ seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.1677247
 #                              -0.159526180248348/6, -0.13927943487493/6, -0.0953402986114613/6, -0.0474646801238288/6,
 #                              -0.0278622280543003/6, 0.000000/6, -0.00850263509128089/6, -0.0409638719325969/6  ])
 
-# kappa_r = 0.492828372105622
-# sigma_r = 0.655898616135014
-# theta_r = 0.000588276156660185
-# kappa_delta= 1.17723166341479
-# sigma_delta = 1.03663918307669
-# theta_delta = -0.213183673388138
-# sigma_s = 0.791065501973918
-# rho_1 = 0.899944474373156
-# rho_2 = -0.306810849087325
-# sigma_v = 0.825941396204049
-# theta_v = 10 * 0.0505685591761352
-# theta = 0.00640705687096142
-# kappa_v = 2.36309244973169
-# lam = 0.638842070975342
-# sigma_j = 0.032046147726045
-# mu_j = 0.0137146728855484
-# seed = 34
-# initial_spot_price = np.exp(2.9479)
-# initial_r = 0.15958620269619
-# initial_delta =  0.106417288572204
-# initial_v =  10 * 0.0249967313173077
+kappa_r = 0.492828372105622
+sigma_r = 0.655898616135014
+theta_r = 0.000588276156660185
+kappa_delta= 1.17723166341479
+sigma_delta = 1.03663918307669
+theta_delta = -0.213183673388138
+sigma_s = 0.791065501973918
+rho_1 = 0.899944474373156
+rho_2 = -0.306810849087325
+sigma_v = 0.825941396204049
+theta_v = 10 * 0.0505685591761352
+theta = 0.00640705687096142
+kappa_v = 2.36309244973169
+lam = 0.638842070975342
+sigma_j = 0.032046147726045
+mu_j = 0.0137146728855484
+seed = 34
+initial_spot_price = np.exp(2.9479)
+initial_r = 0.15958620269619
+initial_delta =  0.106417288572204
+initial_v =  10 * 0.0249967313173077
 
-# ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
-# seasonal_factors = np.array([0,0,0,0,0,0,0,0,0,0,0,0])
+ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
+seasonal_factors = np.array([0,0,0,0,0,0,0,0,0,0,0,0])
 
 # Simulate state variables using Euler-Maruyama
 # Pre-allocate arrays

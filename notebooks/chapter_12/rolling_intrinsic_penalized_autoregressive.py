@@ -1164,7 +1164,7 @@ for seed in SEEDS:
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
         'max_episodes': 50_000,
-        'goal_mean_100_reward': 4.5#-15#-150
+        'goal_mean_100_reward': np.inf#4.5#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
@@ -1177,7 +1177,7 @@ for seed in SEEDS:
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.5, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.3, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
                                                                                                                               noise_free_last=0.2 * environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
