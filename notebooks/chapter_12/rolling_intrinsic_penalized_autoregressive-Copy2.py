@@ -910,10 +910,10 @@ class DDPG():
         self.target_policy_model = self.policy_model_fn(nS, action_bounds)
         self.online_policy_model = self.policy_model_fn(nS, action_bounds)
 
-        # Load pretrained actor weights into both online and target policy models
-        pretrained_path = "fcdp_actor_ri-2.pth"  # path to your pretrained file
-        self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
-        self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
+        # # Load pretrained actor weights into both online and target policy models
+        # pretrained_path = "fcdp_actor_ri-2.pth"  # path to your pretrained file
+        # self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
+        # self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
 
         self.update_networks(tau=1.0)
         self.value_optimizer = self.value_optimizer_fn(self.online_value_model, 
@@ -1480,7 +1480,7 @@ kappa_v = 2.36309244973169
 lam = 0.638842070975342
 sigma_j = 0.032046147726045
 mu_j = 0.0137146728855484
-seed = 34
+seed = 1
 initial_spot_price = np.exp(2.9479)
 initial_r = 0.15958620269619
 initial_delta =  0.106417288572204
