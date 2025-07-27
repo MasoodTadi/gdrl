@@ -910,10 +910,10 @@ class DDPG():
         self.target_policy_model = self.policy_model_fn(nS, action_bounds)
         self.online_policy_model = self.policy_model_fn(nS, action_bounds)
 
-        # # Load pretrained actor weights into both online and target policy models
-        # pretrained_path = "fcdp_actor_ri.pth"  # path to your pretrained file
-        # self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
-        # self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
+        # Load pretrained actor weights into both online and target policy models
+        pretrained_path = "fcdp_actor_ri.pth"  # path to your pretrained file
+        self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
+        self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
 
         self.update_networks(tau=1.0)
         self.value_optimizer = self.value_optimizer_fn(self.online_value_model, 
@@ -1153,8 +1153,8 @@ class NormalNoiseStrategy:
         # return final_action
         return action
 
-SEEDS = (34, 56, 78, 90)
-# SEEDS = (56, 78, 90)
+# SEEDS = (34, 56, 78, 90)
+SEEDS = (56, 78, 90)
 # SEEDS = [90]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
@@ -1163,8 +1163,8 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 50_000,
-        'goal_mean_100_reward': 4.1#-15#-150
+        'max_episodes': 15_000,
+        'goal_mean_100_reward': np.inf#4.1#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
