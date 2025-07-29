@@ -1163,7 +1163,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 15_000,
+        'max_episodes': 20_000,#15_000,
         'goal_mean_100_reward': np.inf#3.3#-15#-150
     }
 
@@ -1240,7 +1240,7 @@ for seed in SEEDS:
         'initial_v': 0.0249967313173077 * 10, #0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-        'penalty_lambda_riv': 5.0,
+        'penalty_lambda_riv': 0.0,#5.0,
         # 'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
         #                              -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
         #                              -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
