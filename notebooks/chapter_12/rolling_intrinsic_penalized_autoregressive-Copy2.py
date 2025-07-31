@@ -1163,7 +1163,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 25_000,#15_000,
+        'max_episodes': 20_000,#15_000,
         'goal_mean_100_reward': np.inf#3.3#-15#-150
     }
 
@@ -1177,7 +1177,7 @@ for seed in SEEDS:
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.3, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.25, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
                                                                                                                               noise_free_last=0.2 * environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
