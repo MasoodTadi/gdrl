@@ -7,44 +7,43 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.multiprocessing as mp
-import threading
-from torch.distributions import Normal
+#import torch.multiprocessing as mp
+#import threading
+#from torch.distributions import Normal
 
 import numpy as np
-import pandas as pd
-from scipy.interpolate import CubicSpline
+#import pandas as pd
+#from scipy.interpolate import CubicSpline
 from scipy.optimize import linprog
-from IPython.display import display
-from collections import namedtuple, deque
+#from IPython.display import display
+#from collections import namedtuple, deque
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 from itertools import cycle, count
 from textwrap import wrap
 
 #import pybullet_envs
-import pybullet
-import matplotlib
-import subprocess
-import os.path
-import tempfile
+#import pybullet
+#import matplotlib
+#import subprocess
+#import os.path
+#import tempfile
 import random
-import base64
-import pprint
+#import base64
+#import pprint
 import glob
 import time
-import json
-import sys
+#import json
+#import sys
 import gymnasium as gym
-import io
-import os
+#import io
 import gc
 
-from gym import wrappers
-from skimage.transform import resize
-from skimage.color import rgb2gray
-from subprocess import check_output
-from IPython.display import display, HTML
+#from gym import wrappers
+#from skimage.transform import resize
+#from skimage.color import rgb2gray
+#from subprocess import check_output
+#from IPython.display import display, HTML
 
 import datetime
 
@@ -52,7 +51,7 @@ LEAVE_PRINT_EVERY_N_SECS = 300
 ERASE_LINE = '\x1b[2K'
 EPS = 1e-6
 BEEP = lambda: os.system("printf '\a'")
-RESULTS_DIR = os.path.join('..', 'results')
+#RESULTS_DIR = os.path.join('..', 'results')
 
 plt.style.use('fivethirtyeight')
 params = {
@@ -179,7 +178,7 @@ class TTFGasStorageEnv(gym.Env):
         futures_list = np.full(12, 0.0, dtype=np.float32)  # Initialize all values as 0.0
     
         # Determine the number of remaining valid futures contracts
-        remaining_futures = max(12 - (self.day // 30), 0)  # Shrinks every 30 days
+        #remaining_futures = max(12 - (self.day // 30), 0)  # Shrinks every 30 days
     
         for k in range(12):
             expiration_day = (k+1) * 30  # Expiration at the end of month (1-based index)
@@ -922,9 +921,9 @@ class DDPG():
         self.online_policy_model = self.policy_model_fn(nS, action_bounds)
 
         # Load pretrained actor weights into both online and target policy models
-        pretrained_path = "fcdp_actor_ri.pth"  # path to your pretrained file
-        self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
-        self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
+        # pretrained_path = "fcdp_actor_ri.pth"  # path to your pretrained file
+        # self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
+        # self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
 
         self.update_networks(tau=1.0)
         self.value_optimizer = self.value_optimizer_fn(self.online_value_model, 
@@ -1172,7 +1171,7 @@ best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
     environment_settings = {
         'env_name': 'TTFGasStorageEnv',
-        'gamma': 1.0,
+        'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
         'max_episodes': 20_000, #15_000,
         'goal_mean_100_reward': np.inf#4.1#-15#-150
@@ -1188,15 +1187,17 @@ for seed in SEEDS:
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
-                                                                                                                              noise_free_last=0.2 * environment_settings['max_episodes'])
+    # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
+    #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.05, final_noise_ratio = 0.01, max_episode=environment_settings['max_episodes'], 
+                                                                                                                              noise_free_last=0.1 * environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
     # replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
     replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=100_000, batch_size=32)
-    n_warmup_batches = 1#200#5
+    n_warmup_batches = 10#1#200#5
     update_target_every_steps = 1
     tau = 0.005
     
@@ -1371,7 +1372,7 @@ plt.savefig("Moving_Average_Reward_Autoregressive_Penalized.png")
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
     futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
-    remaining_futures = max(12 - (day // 30), 0)  # Shrinks every 30 days
+    #remaining_futures = max(12 - (day // 30), 0)  # Shrinks every 30 days
     for k in range(12):
         expiration_day = (k+1) * 30  # Expiration at the end of month (1-based index)
         tau = (expiration_day - day) / 360.0
