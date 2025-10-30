@@ -1163,9 +1163,9 @@ class NormalNoiseStrategy:
         # return final_action
         return action
 
-# SEEDS = (34, 56, 78, 90)
-SEEDS = (56, 78, 90)
-# SEEDS = [90]
+SEEDS = (34, 56, 78, 90)
+#SEEDS = (56, 78, 90)
+SEEDS = [90]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
@@ -1173,7 +1173,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 20_000, #15_000,
+        'max_episodes': 50_000, #20_000, #15_000,
         'goal_mean_100_reward': np.inf#4.1#-15#-150
     }
 
@@ -1189,8 +1189,9 @@ for seed in SEEDS:
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
     #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.05, final_noise_ratio = 0.01, max_episode=environment_settings['max_episodes'], 
-                                                                                                                              noise_free_last=0.1 * environment_settings['max_episodes'])
+    # I wanna increase exploration_noise_ratio from 0.05 to 0.20 
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.20, final_noise_ratio = 0.01,
+                                                              max_episode=environment_settings['max_episodes'], noise_free_last=0.1 *environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
     # evaluation_strategy_fn = lambda: GreedyStrategy()
