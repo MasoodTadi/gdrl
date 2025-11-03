@@ -1177,8 +1177,8 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 13445, #20_000, #15_000,
-        'goal_mean_100_reward': np.inf#4.1#-15#-150
+        'max_episodes': 10_000_000, #20_000, #15_000,
+        'goal_mean_100_reward': 4.5#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
@@ -1422,7 +1422,7 @@ def compute_futures_curve_scalar(day, S_t, r_t, delta_t):
     return futures
 
 # Parameters for the Yan (2002) model
-N_simulations = 1000 # Number of simulations
+N_simulations = 100 # Number of simulations
 T = 360  
 dt = 1/(T+1)
 # Model Parameters (Assumed)
@@ -1559,7 +1559,7 @@ for sim in range(N_simulations):
         F_t[sim, day, :] = compute_futures_curve_scalar(day, S, r, delta)
 
 # Rolling Intrinsic valuation
-N_simulations = 1000  # Number of simulations
+N_simulations = 100  # Number of simulations
 n = 12  # Number of months
 T = 360  
 N_maturities = 12
@@ -1633,7 +1633,7 @@ V_IE_Rolling = np.mean(CF_IE_Rolling)
 print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE_Rolling:.4f}")
 
 # DRL Valuation
-N_simulations = 1000 # Number of simulations
+N_simulations = 100 # Number of simulations
 T = 360  
 N_maturities = 12
 decision_times = np.arange(0, T+1, 30)  # Decision points tau = [0, 30, 60, ..., 360]
