@@ -4,8 +4,8 @@
 #PBS -l walltime=48:00:00
 # total combinations: 1296
 #PBS -J 1-1296
-#PBS -o logs/hyperjob_%I.out
-#PBS -e logs/hyperjob_%I.err
+#PBS -o logs/hyperjob_%I.o
+#PBS -e logs/hyperjob_%I.e
 
 echo "Running hyperparameter job index ${PBS_ARRAY_INDEX}"
 
@@ -28,7 +28,7 @@ echo "  n_warmup    = ${n_warmup}"
 echo "  tau         = ${tau}"
 echo "  beta0       = ${beta0}"
 
-time python -u rolling_intrinsic_param_sweep.py \
+time python -u rolling_intrinsic_hyperparam_sweep.py \
     --scenario "${PBS_ARRAY_INDEX}" \
     --policy_lr "${policy_lr}" \
     --value_lr "${value_lr}" \
