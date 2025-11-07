@@ -1235,8 +1235,8 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 200_000, #15_000,
-        'goal_mean_100_reward': 4.1#-15#-150
+        'max_episodes': 20_000, #15_000,
+        'goal_mean_100_reward': np.inf#4.1#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
