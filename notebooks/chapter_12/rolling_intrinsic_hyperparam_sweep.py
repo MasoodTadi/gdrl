@@ -944,14 +944,16 @@ class DDPG():
         training_start, last_debug_time = time.time(), float('-inf')
 
         # Safe and persistent checkpoint directory in home
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.checkpoint_dir = os.path.expanduser(
-            f"~/ddpg_checkpoints/run_{RUN_TAG}_{timestamp}"
-        )
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        # self.checkpoint_dir = os.path.expanduser(
+        #     f"~/ddpg_checkpoints/run_{RUN_TAG}_{timestamp}"
+        # )
+        # os.makedirs(self.checkpoint_dir, exist_ok=True)
     
+        # print(f"Running on: {os.uname().nodename}")
+        # print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
         print(f"Running on: {os.uname().nodename}")
-        print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
+        print("[INFO] Per-episode checkpoints are disabled in this run.")
         # self.checkpoint_dir = tempfile.mkdtemp()
         #print(self.checkpoint_dir)
         #self.make_env_fn = make_env_fn
@@ -1027,7 +1029,8 @@ class DDPG():
             self.episode_seconds.append(episode_elapsed)
             training_time += episode_elapsed
             evaluation_score, _ = self.evaluate(self.online_policy_model, env)
-            self.save_checkpoint(episode-1, self.online_policy_model)
+            # self.save_checkpoint(episode-1, self.online_policy_model)
+            # No per-episode checkpoints
 
             total_step = int(np.sum(self.episode_timestep))
             self.evaluation_scores.append(evaluation_score)
@@ -1081,7 +1084,7 @@ class DDPG():
               ' {:.2f}s wall-clock time.\n'.format(
                   final_eval_score, score_std, training_time, wallclock_time))
         env.close() ; del env
-        self.get_cleaned_checkpoints()
+        # self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
     
     def evaluate(self, eval_policy_model, eval_env, n_episodes=1):
