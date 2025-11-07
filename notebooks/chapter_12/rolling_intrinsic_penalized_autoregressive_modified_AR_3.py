@@ -1201,10 +1201,10 @@ for seed in SEEDS:
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
     # replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
-    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=200_000, batch_size=128)
+    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=100_000, batch_size=128)
     n_warmup_batches = 200#10#1#200#5
     update_target_every_steps = 1
-    tau = 0.005
+    tau = 0.05#0.005
     
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
