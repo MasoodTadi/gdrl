@@ -1,8 +1,8 @@
 #!/bin/bash
 #PBS -N rolling_intrinsic_param_sweep
 #PBS -l select=1:ncpus=1:mem=4gb
-#PBS -l walltime=48:00:00
-#PBS -J 1-54
+#PBS -l walltime=72:00:00
+#PBS -J 1-144
 #PBS -o logs/job_${PBS_ARRAY_INDEX}.o
 #PBS -e logs/job_${PBS_ARRAY_INDEX}.e
 
@@ -18,6 +18,7 @@ read theta_delta initial_delta kappa_delta sigma_delta <<< $(sed -n "${PBS_ARRAY
 
 # Run the Python script with these parameters
 time python -u rolling_intrinsic_param_sweep.py \
+    --scenario "${PBS_ARRAY_INDEX}" \
     --theta_delta $theta_delta \
     --initial_delta $initial_delta \
     --kappa_delta $kappa_delta \

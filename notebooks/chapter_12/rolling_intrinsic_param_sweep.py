@@ -80,15 +80,14 @@ parser.add_argument("--sigma_delta", type=float,
 
 ARGS = parser.parse_args()
 
-# Make a compact, filename-safe tag for this parameter combo
-RUN_TAG = (
-    f"td{ARGS.theta_delta:+.2f}_"
-    f"id{ARGS.initial_delta:+.2f}_"
-    f"kd{ARGS.kappa_delta:.3f}_"
-    f"sd{ARGS.sigma_delta:.3f}"
-)
-# Optional: clean up characters so filenames are nicer
-RUN_TAG = RUN_TAG.replace("+", "").replace("-", "m").replace(".", "p")
+if ARGS.scenario >= 0:
+    scenario_id = ARGS.scenario
+else:
+    scenario_id = int(os.environ.get("PBS_ARRAY_INDEX", "0"))
+
+# Use plain number (or zero-padded if you prefer)
+RUN_TAG = f"{scenario_id}"          # e.g. "17"
+# or: RUN_TAG = f"{scenario_id:03d}"  # e.g. "017"
 
 class TTFGasStorageEnv(gym.Env):
     def __init__(self, params):
@@ -915,14 +914,15 @@ class DDPG():
         training_start, last_debug_time = time.time(), float('-inf')
 
         # Safe and persistent checkpoint directory in home
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.checkpoint_dir = os.path.expanduser(
-            f"~/ddpg_checkpoints/run_{RUN_TAG}_{timestamp}"
-        )
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        # self.checkpoint_dir = os.path.expanduser(
+        #     f"~/ddpg_checkpoints/run_{RUN_TAG}_{timestamp}"
+        # )
+        # os.makedirs(self.checkpoint_dir, exist_ok=True)
     
         print(f"Running on: {os.uname().nodename}")
-        print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
+        # print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
+        print("[INFO] Per-episode checkpoints are disabled in this run.")
         # self.checkpoint_dir = tempfile.mkdtemp()
         #print(self.checkpoint_dir)
         #self.make_env_fn = make_env_fn
@@ -998,7 +998,7 @@ class DDPG():
             self.episode_seconds.append(episode_elapsed)
             training_time += episode_elapsed
             evaluation_score, _ = self.evaluate(self.online_policy_model, env)
-            self.save_checkpoint(episode-1, self.online_policy_model)
+            # self.save_checkpoint(episode-1, self.online_policy_model)
 
             total_step = int(np.sum(self.episode_timestep))
             self.evaluation_scores.append(evaluation_score)
@@ -1052,7 +1052,7 @@ class DDPG():
               ' {:.2f}s wall-clock time.\n'.format(
                   final_eval_score, score_std, training_time, wallclock_time))
         env.close() ; del env
-        self.get_cleaned_checkpoints()
+        # self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
     
     def evaluate(self, eval_policy_model, eval_env, n_episodes=1):
@@ -1190,12 +1190,12 @@ class NormalNoiseStrategy:
         return action
 
 # SEEDS = (34, 56, 78, 90)
-#SEEDS = (56, 78, 90)
+SEEDS = (56, 78, 90)
 # SEEDS = (
 #     12, 34, 56, 78, 90, 123, 145, 167, 189, 210,
 #     256, 312, 478, 512, 634, 758, 890, 912, 1024, 2048
 # )
-SEEDS = [78]
+# SEEDS = [78]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
