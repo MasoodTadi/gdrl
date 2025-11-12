@@ -78,6 +78,9 @@ parser.add_argument("--kappa_delta", type=float,
 parser.add_argument("--sigma_delta", type=float,
                     default=1.03663918307669)
 
+# scenario index (e.g. PBS_ARRAY_INDEX)
+parser.add_argument("--scenario", type=int, default=-1)
+
 ARGS = parser.parse_args()
 
 if ARGS.scenario >= 0:
