@@ -1274,7 +1274,7 @@ for seed in SEEDS:
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
-    replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=128) #max_size=100000
+    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_size=100_000, batch_size=128) #max_size=100000
     # replay_buffer_fn = lambda: PrioritizedReplayBuffer(
     # max_samples=ARGS.max_samples,
     # batch_size=ARGS.batch_size,
