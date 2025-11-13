@@ -661,8 +661,8 @@ class FCDPAutoregressive(nn.Module):
                  input_dim,
                  action_bounds,
                  hidden_dims=(512, 512, 256, 128), 
-                 activation_fc=F.leaky_relu),
-                 dropout_rate=0.0:
+                 activation_fc=F.leaky_relu,
+                 dropout_rate=0.0):
         super(FCDPAutoregressive, self).__init__()
         self.activation_fc = activation_fc
         self.dropout_rate = dropout_rate
