@@ -1453,6 +1453,8 @@ initial_r     = 0.015
 initial_delta = -0.05
 initial_v     = 0.02
 
+ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
+seed = 1
 # simple linear seasonals to help month-to-month slope
 seasonal_factors = np.array(
     [-0.10 + 0.02*(k) for k in range(12)]
