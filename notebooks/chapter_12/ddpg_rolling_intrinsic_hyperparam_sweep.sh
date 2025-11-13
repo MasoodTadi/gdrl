@@ -20,6 +20,12 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 read noise_ratio dropout_rate policy_max_grad_norm penalty_lambda_riv \
     <<< $(sed -n "${PBS_ARRAY_INDEX}p" hyperparams_list.txt)
 
+echo "HPs:"
+echo "  noise_ratio   = ${noise_ratio}"
+echo "  dropout_rate    = ${dropout_rate}"
+echo "  policy_max_grad_norm = ${policy_max_grad_norm}"
+echo "  penalty_lambda_riv  = ${penalty_lambda_riv}"
+
 # echo "HPs:"
 # echo "  policy_lr   = ${policy_lr}"
 # echo "  value_lr    = ${value_lr}"
