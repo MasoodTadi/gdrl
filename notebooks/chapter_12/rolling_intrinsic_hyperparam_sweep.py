@@ -79,23 +79,32 @@ parser = argparse.ArgumentParser()
 # parser.add_argument("--sigma_delta", type=float,
 #                     default=1.03663918307669)
 
-parser.add_argument("--policy_lr", type=float, default=3e-4)
-parser.add_argument("--value_lr", type=float, default=5e-4)
+# parser.add_argument("--policy_lr", type=float, default=3e-4)
+# parser.add_argument("--value_lr", type=float, default=5e-4)
 
 # shared architecture for policy and value nets
 # we'll pass strings like: 512x256, 512x256x128, 512x512x256x128
-parser.add_argument(
-    "--hidden_arch",
-    type=str,
-    default="512x512x256x128",
-    choices=["512x256", "512x256x128", "512x512x256x128"],
-)
+# parser.add_argument(
+#     "--hidden_arch",
+#     type=str,
+#     default="512x512x256x128",
+#     choices=["512x256", "512x256x128", "512x512x256x128"],
+# )
 
-parser.add_argument("--batch_size", type=int, default=32)
-parser.add_argument("--max_samples", type=int, default=100_000)
-parser.add_argument("--n_warmup_batches", type=int, default=10)
-parser.add_argument("--tau", type=float, default=0.005)
-parser.add_argument("--beta0", type=float, default=0.1)
+# parser.add_argument("--batch_size", type=int, default=32)
+# parser.add_argument("--max_samples", type=int, default=100_000)
+# parser.add_argument("--n_warmup_batches", type=int, default=10)
+# parser.add_argument("--tau", type=float, default=0.005)
+# parser.add_argument("--beta0", type=float, default=0.1)
+parser.add_argument("--noise_ratio", type=float, default=0.2)
+parser.add_argument("--dropout_rate", type=float, default=0.0)
+parser.add_argument("--policy_max_grad_norm", type=float, default=1.0)
+parser.add_argument("--penalty_lambda_riv", type=float, default=0.0)
+
+
+
+
+
 
 # scenario index (e.g. PBS_ARRAY_INDEX)
 parser.add_argument("--scenario", type=int, default=-1)
@@ -103,12 +112,12 @@ parser.add_argument("--scenario", type=int, default=-1)
 ARGS = parser.parse_args()
 
 # Map string → tuple for hidden_dims
-HIDDEN_MAP = {
-    "512x256": (512, 256),
-    "512x256x128": (512, 256, 128),
-    "512x512x256x128": (512, 512, 256, 128),
-}
-HIDDEN_DIMS = HIDDEN_MAP[ARGS.hidden_arch]
+# HIDDEN_MAP = {
+#     "512x256": (512, 256),
+#     "512x256x128": (512, 256, 128),
+#     "512x512x256x128": (512, 512, 256, 128),
+# }
+# HIDDEN_DIMS = HIDDEN_MAP[ARGS.hidden_arch]
 
 if ARGS.scenario >= 0:
     scenario_id = ARGS.scenario
@@ -652,9 +661,12 @@ class FCDPAutoregressive(nn.Module):
                  input_dim,
                  action_bounds,
                  hidden_dims=(512, 512, 256, 128), 
-                 activation_fc=F.leaky_relu):
+                 activation_fc=F.leaky_relu),
+                 dropout_rate=0.0:
         super(FCDPAutoregressive, self).__init__()
         self.activation_fc = activation_fc
+        self.dropout_rate = dropout_rate
+        self.dropout = nn.Dropout(dropout_rate)  # one dropout layer reused
         self.env_min, self.env_max = action_bounds
 
         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
@@ -702,8 +714,10 @@ class FCDPAutoregressive(nn.Module):
         V_t = state[:, -1] * self.V_max  # De-normalize
 
         x = self.activation_fc(self.input_layer(state))
+        x = self.dropout(x)
         for layer in self.hidden_layers:
             x = self.activation_fc(layer(x))
+            x = self.dropout(x)
 
         actions = []
         cum_V = V_t.clone()
@@ -1240,33 +1254,35 @@ for seed in SEEDS:
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
-    policy_model_fn = lambda nS, bounds, hd=HIDDEN_DIMS: FCDPAutoregressive(nS, bounds, hidden_dims=hd) 
+    # policy_model_fn = lambda nS, bounds, hd=HIDDEN_DIMS: FCDPAutoregressive(nS, bounds, hidden_dims=hd) 
+    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128), dropout_rate=ARGS.dropout_rate) 
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    policy_optimizer_lr = ARGS.policy_lr#0.0003#0.0005#0.003
+    policy_optimizer_lr = 0.00003#ARGS.policy_lr#0.0003#0.0005#0.003
 
-    value_model_fn  = lambda nS, nA,    hd=HIDDEN_DIMS: FCQV(nS, nA, hidden_dims=hd)
+    # value_model_fn  = lambda nS, nA,    hd=HIDDEN_DIMS: FCQV(nS, nA, hidden_dims=hd)
+    value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(512, 512, 256, 128))
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    value_optimizer_lr = ARGS.value_lr#0.0005#0.0003#0.0005#0.003
+    value_optimizer_lr = 0.00005#ARGS.value_lr#0.0005#0.0003#0.0005#0.003
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
     #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
     # I wanna increase exploration_noise_ratio from 0.05 to 0.20 
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.20, final_noise_ratio = 0.01,
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=ARGS.noise_ratio, final_noise_ratio = 0.01,
                                                               max_episode=environment_settings['max_episodes'], noise_free_last=0.1 *environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
-    # replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
-    replay_buffer_fn = lambda: PrioritizedReplayBuffer(
-    max_samples=ARGS.max_samples,
-    batch_size=ARGS.batch_size,
-    beta0=ARGS.beta0,
-    )
-    n_warmup_batches = ARGS.n_warmup_batches
+    replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=128) #max_size=100000
+    # replay_buffer_fn = lambda: PrioritizedReplayBuffer(
+    # max_samples=ARGS.max_samples,
+    # batch_size=ARGS.batch_size,
+    # beta0=ARGS.beta0,
+    # )
+    n_warmup_batches = 100#ARGS.n_warmup_batches
     update_target_every_steps = 1
-    tau = ARGS.tau
+    tau = 0.05#ARGS.tau
     
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
@@ -1319,7 +1335,7 @@ for seed in SEEDS:
         'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
-        'penalty_lambda_riv': 0.0, #5.0,
+        'penalty_lambda_riv': ARGs.penalty_lambda_riv, #5.0,
         'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
                                      -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
                                      -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
@@ -1407,7 +1423,7 @@ _ = BEEP()
 
 torch.save(
     best_agent.online_policy_model.state_dict(),
-    f"online_policy_model_autoregressive_scenario_{RUN_TAG}.pth",
+    f"online_policy_model_autoregressive_scenario_hyper_{RUN_TAG}.pth",
 )
 
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
@@ -1438,7 +1454,7 @@ axs[0].set_title('Moving Avg Reward (Training)')
 axs[1].set_title('Moving Avg Reward (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
-plt.savefig(f"Moving_Average_Reward_Autoregressive_Scenario_{RUN_TAG}.png")
+plt.savefig(f"Moving_Average_Reward_Autoregressive_Scenario_Hyper_{RUN_TAG}.png")
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
     futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
@@ -1795,4 +1811,4 @@ plt.ylabel("Realized Reservoir Value")
 plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
-plt.savefig(f"Reinforcement_Learning_Value_Autoregressive_Scenario_{RUN_TAG}.png")
+plt.savefig(f"Reinforcement_Learning_Value_Autoregressive_Scenario_Hyper_{RUN_TAG}.png")

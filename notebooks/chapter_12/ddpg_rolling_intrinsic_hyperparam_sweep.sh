@@ -15,26 +15,24 @@ mkdir -p logs
 source /storage/praha1/home/tadim/myenv/bin/activate
 
 # Read the hyperparameters for this array index
-read policy_lr value_lr hidden_arch batch_size max_samples n_warmup tau beta0 \
+# read policy_lr value_lr hidden_arch batch_size max_samples n_warmup tau beta0 \
+#     <<< $(sed -n "${PBS_ARRAY_INDEX}p" hyperparams_list.txt)
+read noise_ratio dropout_rate policy_max_grad_norm penalty_lambda_riv \
     <<< $(sed -n "${PBS_ARRAY_INDEX}p" hyperparams_list.txt)
 
-echo "HPs:"
-echo "  policy_lr   = ${policy_lr}"
-echo "  value_lr    = ${value_lr}"
-echo "  hidden_arch = ${hidden_arch}"
-echo "  batch_size  = ${batch_size}"
-echo "  max_samples = ${max_samples}"
-echo "  n_warmup    = ${n_warmup}"
-echo "  tau         = ${tau}"
-echo "  beta0       = ${beta0}"
+# echo "HPs:"
+# echo "  policy_lr   = ${policy_lr}"
+# echo "  value_lr    = ${value_lr}"
+# echo "  hidden_arch = ${hidden_arch}"
+# echo "  batch_size  = ${batch_size}"
+# echo "  max_samples = ${max_samples}"
+# echo "  n_warmup    = ${n_warmup}"
+# echo "  tau         = ${tau}"
+# echo "  beta0       = ${beta0}"
 
 time python -u rolling_intrinsic_hyperparam_sweep.py \
     --scenario "${PBS_ARRAY_INDEX}" \
-    --policy_lr "${policy_lr}" \
-    --value_lr "${value_lr}" \
-    --hidden_arch "${hidden_arch}" \
-    --batch_size "${batch_size}" \
-    --max_samples "${max_samples}" \
-    --n_warmup_batches "${n_warmup}" \
-    --tau "${tau}" \
-    --beta0 "${beta0}" | tee "output_hyper_${PBS_ARRAY_INDEX}.log"
+    --noise_ratio "${noise_ratio}" \
+    --dropout_rate "${dropout_rate}" \
+    --policy_max_grad_norm "${policy_max_grad_norm}" \
+    --penalty_lambda_riv "${penalty_lambda_riv}" | tee "output_hyper_${PBS_ARRAY_INDEX}.log"
