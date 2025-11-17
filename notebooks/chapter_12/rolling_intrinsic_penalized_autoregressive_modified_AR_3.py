@@ -599,9 +599,12 @@ class FCDPAutoregressive(nn.Module):
                  input_dim,
                  action_bounds,
                  hidden_dims=(512, 512, 256, 128), 
-                 activation_fc=F.leaky_relu):
+                 activation_fc=F.leaky_relu,
+                 dropout_rate=0.0):
         super(FCDPAutoregressive, self).__init__()
         self.activation_fc = activation_fc
+        self.dropout_rate = dropout_rate
+        self.dropout = nn.Dropout(dropout_rate)  # one dropout layer reused
         self.env_min, self.env_max = action_bounds
 
         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
@@ -649,8 +652,10 @@ class FCDPAutoregressive(nn.Module):
         V_t = state[:, -1] * self.V_max  # De-normalize
 
         x = self.activation_fc(self.input_layer(state))
+        x = self.dropout(x)
         for layer in self.hidden_layers:
             x = self.activation_fc(layer(x))
+            x = self.dropout(x)
 
         actions = []
         cum_V = V_t.clone()
@@ -1177,12 +1182,12 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 20_000, #15_000,
-        'goal_mean_100_reward': np.inf#-15#-150
+        'max_episodes': 40_000, #15_000,
+        'goal_mean_100_reward': 4.5#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
-    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
+    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128), dropout_rate=0.2) 
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.00003#0.0003#0.0005#0.003
@@ -1194,7 +1199,7 @@ for seed in SEEDS:
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
     #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
     # I wanna increase exploration_noise_ratio from 0.05 to 0.20 
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.20, final_noise_ratio = 0.01,
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.10, final_noise_ratio = 0.01,
                                                               max_episode=environment_settings['max_episodes'], noise_free_last=0.1 *environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
@@ -1235,31 +1240,33 @@ for seed in SEEDS:
         'W_max': 0.4,
         'I_max': 0.4,
         # 'storage_capacity': 100000,
-        'kappa_r': 0.60,
-        'sigma_r': 0.40,
-        'theta_r': 0.0045,
-        'kappa_delta': 0.55,
-        'sigma_delta': 0.30,
-        'theta_delta': -0.58,
-        'sigma_s': 0.35,
-        'rho_1': 0.85,
-        'rho_2': -0.30,
-        'sigma_v': 0.0,
-        'theta_v': 0.0,
+        'kappa_r': 0.492828372105622,
+        'sigma_r': 0.655898616135014,
+        'theta_r': 0.000588276156660185,
+        'kappa_delta': 1.17723166341479,
+        'sigma_delta': 1.03663918307669,
+        'theta_delta': -0.213183673388138,
+        'sigma_s': 0.791065501973918,
+        'rho_1': 0.899944474373156,
+        'rho_2': -0.306810849087325,
+        'sigma_v': 0.825941396204049,
+        'theta_v': 0.0505685591761352,
         'theta': 0.00640705687096142,
-        'kappa_v': 3.0,
-        'lam': 0.0,
-        'sigma_j': 0.0,
-        'mu_j': 0.0,
+        'kappa_v': 2.36309244973169,
+        'lam': 0.638842070975342,
+        'sigma_j': 0.032046147726045,
+        'mu_j': 0.0137146728855484,
         'seed': seed,
         'initial_spot_price': np.exp(2.9479),
-        'initial_r': 0.015,
-        'initial_delta': -0.05,
-        'initial_v': 0.02,
+        'initial_r': 0.15958620269619,
+        'initial_delta': 0.106417288572204,
+        'initial_v': 0.0249967313173077,
         'penalty_lambda1': 10,#0.2,#2.0,#0.2,#10.0,
         'penalty_lambda2': 50.,#1,#10.0,#1.0,#50.0,
         'penalty_lambda_riv': 0.0, #5.0,
-        'monthly_seasonal_factors': np.array([-0.10 + 0.02*(k) for k in range(12)])
+        'monthly_seasonal_factors': np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+                                     -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288, 
+                                     -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969])
     }
 
     # params = {
@@ -1425,41 +1432,32 @@ N_simulations = 100 # Number of simulations
 T = 360  
 dt = 1/(T+1)
 # Model Parameters (Assumed)
-kappa_r   = 0.60
-sigma_r   = 0.40
-theta_r   = 0.0045
-
-kappa_delta  = 0.55
-sigma_delta  = 0.30
-theta_delta  = -0.58   # drives contango / upward slope in months
-
-sigma_s   = 0.35
-rho_1     = 0.85
-
-# keep these benign; they don’t move the mean much
-rho_2     = -0.30
-sigma_v   = 0.0
-theta_v   = 0.0
-kappa_v   = 3.0
-
-lam       = 0.0
-sigma_j   = 0.0
-mu_j      = 0.0
-
-# seeds / initials (mild, centered near ~19 spot)
+kappa_r = 0.492828372105622
+sigma_r = 0.655898616135014
+theta_r = 0.000588276156660185
+kappa_delta= 1.17723166341479
+sigma_delta = 1.03663918307669
+theta_delta = -0.213183673388138
+sigma_s = 0.791065501973918
+rho_1 = 0.899944474373156
+rho_2 = -0.306810849087325
+sigma_v = 0.825941396204049
+theta_v = 0.0505685591761352
+theta = 0.00640705687096142
+kappa_v = 2.36309244973169
+lam = 0.638842070975342
+sigma_j = 0.032046147726045
+mu_j = 0.0137146728855484
 seed = 1
-initial_spot_price = np.exp(2.9479)   # ~19.0
-initial_r     = 0.015
-initial_delta = -0.05
-initial_v     = 0.02
+initial_spot_price = np.exp(2.9479)
+initial_r = 0.15958620269619
+initial_delta =  0.106417288572204
+initial_v =  0.0249967313173077
 
 ksi_r = np.sqrt(kappa_r**2 + 2*sigma_r**2)
-seed = 1
-# simple linear seasonals to help month-to-month slope
-seasonal_factors = np.array(
-    [-0.10 + 0.02*(k) for k in range(12)]
-    # = [-0.10, -0.08, -0.06, -0.04, -0.02, 0.00, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12]
-)
+seasonal_factors = np.array([ -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
+                             -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
+                             -0.0278622280543003, 0.000000, -0.00850263509128089, -0.0409638719325969  ])
 
 # kappa_r = 0.492828372105622
 # sigma_r = 0.655898616135014
