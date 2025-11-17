@@ -1264,7 +1264,7 @@ for seed in SEEDS:
     value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(512, 512, 256, 128))
     value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    value_optimizer_lr = 0.00005#ARGS.value_lr#0.0005#0.0003#0.0005#0.003
+    value_optimizer_lr = 0.0005#ARGS.value_lr#0.0005#0.0003#0.0005#0.003
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
     #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
     # I wanna increase exploration_noise_ratio from 0.05 to 0.20 
@@ -1274,15 +1274,15 @@ for seed in SEEDS:
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
-    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=100_000, batch_size=128) #max_size=100000
+    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=200_000, batch_size=256) #max_size=100000
     # replay_buffer_fn = lambda: PrioritizedReplayBuffer(
     # max_samples=ARGS.max_samples,
     # batch_size=ARGS.batch_size,
     # beta0=ARGS.beta0,
     # )
-    n_warmup_batches = 100#ARGS.n_warmup_batches
+    n_warmup_batches = 200#ARGS.n_warmup_batches
     update_target_every_steps = 1
-    tau = 0.05#ARGS.tau
+    tau = 0.005#ARGS.tau
     
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
