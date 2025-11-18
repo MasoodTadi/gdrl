@@ -1193,12 +1193,12 @@ class NormalNoiseStrategy:
         return action
 
 # SEEDS = (34, 56, 78, 90)
-SEEDS = (56, 78, 90)
+# SEEDS = (56, 78, 90)
 # SEEDS = (
 #     12, 34, 56, 78, 90, 123, 145, 167, 189, 210,
 #     256, 312, 478, 512, 634, 758, 890, 912, 1024, 2048
 # )
-# SEEDS = [78]
+SEEDS = [78]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
@@ -1214,7 +1214,7 @@ for seed in SEEDS:
     policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    policy_optimizer_lr = 0.0003#0.0005#0.003
+    policy_optimizer_lr = 0.00003#0.0005#0.003
 
     value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(512, 512, 256, 128)) 
     value_max_grad_norm = 1#float('inf')
@@ -1230,10 +1230,10 @@ for seed in SEEDS:
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
     # replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
-    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=100_000, batch_size=32)
-    n_warmup_batches = 10#1#200#5
+    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=200_000, batch_size=256)
+    n_warmup_batches = 200#1#200#5
     update_target_every_steps = 1
-    tau = 0.005
+    tau = 0.0005
     
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
