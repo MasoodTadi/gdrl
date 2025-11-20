@@ -617,77 +617,128 @@ class FCCA_AR(nn.Module):
 
         return logits_list
 
-    def np_pass(self, states):
+    # def np_pass(self, states):
+    #     logits_list = self.forward(states)
+
+    #     actions = []
+    #     logpas = []
+    #     exploratory = []
+
+    #     for i, logits in enumerate(logits_list):
+    #         dist = torch.distributions.Categorical(logits=logits)
+    #         idx = dist.sample()
+    #         flow = self.choice[idx]
+
+    #         logpa = dist.log_prob(idx)
+    #         greedy_idx = logits.argmax(dim=-1)
+    #         is_explore = (idx != greedy_idx)
+
+    #         actions.append(flow)
+    #         logpas.append(logpa)
+    #         exploratory.append(is_explore)
+
+    #     actions = torch.stack(actions, dim=-1)
+    #     logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
+    #     exploratory = torch.stack(exploratory, dim=-1).any(dim=-1)
+
+    #     return (
+    #         actions.detach().cpu().numpy(),
+    #         logpas.detach().cpu().numpy(),
+    #         exploratory.detach().cpu().numpy()
+    #     )
+    def np_pass(self, states, return_indices=True):
+        """Sample actions and log‑probs.  When return_indices=True, return index codes."""
         logits_list = self.forward(states)
-
-        actions = []
-        logpas = []
-        exploratory = []
-
-        for i, logits in enumerate(logits_list):
+        actions, logpas, exploratory = [], [], []
+        for logits in logits_list:
             dist = torch.distributions.Categorical(logits=logits)
-            idx = dist.sample()
-            flow = self.choice[idx]
-
+            idx = dist.sample()                   # idx has dtype torch.long
             logpa = dist.log_prob(idx)
             greedy_idx = logits.argmax(dim=-1)
             is_explore = (idx != greedy_idx)
 
-            actions.append(flow)
+            # append index or flow depending on return_indices flag
+            if return_indices:
+                actions.append(idx)              # keep as index
+            else:
+                actions.append(self.choice[idx]) # map to flow
+
             logpas.append(logpa)
             exploratory.append(is_explore)
 
-        actions = torch.stack(actions, dim=-1)
+        actions = torch.stack(actions, dim=-1)                    # shape (batch_size, n_months)
         logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
         exploratory = torch.stack(exploratory, dim=-1).any(dim=-1)
 
-        return (
-            actions.detach().cpu().numpy(),
-            logpas.detach().cpu().numpy(),
-            exploratory.detach().cpu().numpy()
-        )
+        # convert to numpy
+        return (actions.cpu().numpy(),
+                logpas.cpu().numpy(),
+                exploratory.cpu().numpy())
         
-    def select_action(self, states):
+    # def select_action(self, states):
+    #     logits_list = self.forward(states)
+    #     actions = []
+    #     for logits in logits_list:
+    #         dist = torch.distributions.Categorical(logits=logits)
+    #         idx = dist.sample()
+    #         flow = self.choice[idx]
+    #         actions.append(flow)
+    #     actions = torch.stack(actions, dim=-1)
+    #     return actions.squeeze(0).detach().cpu().numpy()
+    def select_action(self, states, return_indices=True):
+        """Return a single sampled action for one state."""
         logits_list = self.forward(states)
         actions = []
         for logits in logits_list:
-            dist = torch.distributions.Categorical(logits=logits)
-            idx = dist.sample()
-            flow = self.choice[idx]
-            actions.append(flow)
+            idx = torch.distributions.Categorical(logits=logits).sample()
+            if return_indices:
+                actions.append(idx)
+            else:
+                actions.append(self.choice[idx])
         actions = torch.stack(actions, dim=-1)
-        return actions.squeeze(0).detach().cpu().numpy()
+        return actions.squeeze(0).cpu().numpy()
 
-    def select_greedy_action(self, states):
+    # def select_greedy_action(self, states):
+    #     logits_list = self.forward(states)
+    #     actions = []
+    #     for logits in logits_list:
+    #         idx = logits.argmax(dim=-1)
+    #         flow = self.choice[idx]
+    #         actions.append(flow)
+    #     actions = torch.stack(actions, dim=-1)
+    #     return actions.squeeze(0).detach().cpu().numpy()
+    def select_greedy_action(self, states, return_indices=True):
+        """Return argmax actions for one state."""
         logits_list = self.forward(states)
         actions = []
         for logits in logits_list:
-            idx = logits.argmax(dim=-1)
-            flow = self.choice[idx]
-            actions.append(flow)
+            greedy_idx = logits.argmax(dim=-1)
+            if return_indices:
+                actions.append(greedy_idx)
+            else:
+                actions.append(self.choice[greedy_idx])
         actions = torch.stack(actions, dim=-1)
-        return actions.squeeze(0).detach().cpu().numpy()
+        return actions.squeeze(0).cpu().numpy()
 
     def get_predictions(self, states, actions):
+        """
+        Compute log‑probs and entropies for index‑based actions.
+        'actions' should be a 2‑D tensor of indices of shape (batch, n_months).
+        """
         states = self._format(states)
         logits_list = self.forward(states)
 
         if not isinstance(actions, torch.Tensor):
-            actions = torch.tensor(actions, device=self.device, dtype=torch.float32)
+            actions = torch.tensor(actions, dtype=torch.long, device=self.device)
 
-        logpas = []
-        entropies = []
-
+        logpas, entropies = [], []
         for i, logits in enumerate(logits_list):
             dist = torch.distributions.Categorical(logits=logits)
-            choices = self.choice[:self.output_dims[i]]
-            idx = torch.abs(choices.view(1, -1) - actions[:, i].view(-1, 1)).argmin(dim=1)
+            idx = actions[:, i]            # use the code directly
             logpas.append(dist.log_prob(idx))
             entropies.append(dist.entropy())
-
         logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
         entropies = torch.stack(entropies, dim=-1).mean(dim=-1)
-
         return logpas, entropies
 
 class FCV(nn.Module):
