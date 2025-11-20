@@ -17,13 +17,15 @@ source /storage/praha1/home/tadim/myenv/bin/activate
 # Read the hyperparameters for this array index
 # read policy_lr value_lr hidden_arch batch_size max_samples n_warmup tau beta0 \
 #     <<< $(sed -n "${PBS_ARRAY_INDEX}p" hyperparams_list.txt)
-read noise_ratio dropout_rate policy_max_grad_norm penalty_lambda_riv \
+# read noise_ratio dropout_rate policy_max_grad_norm penalty_lambda_riv \
+#     <<< $(sed -n "${PBS_ARRAY_INDEX}p" hyperparams_list.txt)
+read penalty_lambda_riv \
     <<< $(sed -n "${PBS_ARRAY_INDEX}p" hyperparams_list.txt)
 
 echo "HPs:"
-echo "  noise_ratio   = ${noise_ratio}"
-echo "  dropout_rate    = ${dropout_rate}"
-echo "  policy_max_grad_norm = ${policy_max_grad_norm}"
+# echo "  noise_ratio   = ${noise_ratio}"
+# echo "  dropout_rate    = ${dropout_rate}"
+# echo "  policy_max_grad_norm = ${policy_max_grad_norm}"
 echo "  penalty_lambda_riv  = ${penalty_lambda_riv}"
 
 # echo "HPs:"
@@ -38,7 +40,7 @@ echo "  penalty_lambda_riv  = ${penalty_lambda_riv}"
 
 time python -u rolling_intrinsic_hyperparam_sweep.py \
     --scenario "${PBS_ARRAY_INDEX}" \
-    --noise_ratio "${noise_ratio}" \
-    --dropout_rate "${dropout_rate}" \
-    --policy_max_grad_norm "${policy_max_grad_norm}" \
+    # --noise_ratio "${noise_ratio}" \
+    # --dropout_rate "${dropout_rate}" \
+    # --policy_max_grad_norm "${policy_max_grad_norm}" \
     --penalty_lambda_riv "${penalty_lambda_riv}" | tee "output_hyper_${PBS_ARRAY_INDEX}.log"
