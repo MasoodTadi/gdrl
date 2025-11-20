@@ -1096,9 +1096,12 @@ class PPO():
         del env
         return HTML(data=data)
 
+    # def save_checkpoint(self, episode_idx, model):
+    #     torch.save(model.state_dict(),
+    #                os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
     def save_checkpoint(self, episode_idx, model):
-        torch.save(model.state_dict(),
-                   os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
+        # Do nothing – no checkpoints
+        return
 
 ppo_results = []
 best_agent, best_eval_score = None, float('-inf')
