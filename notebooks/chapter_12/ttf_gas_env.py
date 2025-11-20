@@ -8,7 +8,7 @@ class TTFGasStorageEnv(gym.Env):
     def __init__(self, params):
         super(TTFGasStorageEnv, self).__init__()
         
-        self.max_timesteps = 30 * 12
+        self.max_timesteps = 30 * 12 + 1
         self.seed_value = params.get('seed', None)
         self.dt = 1.0 / self.max_timesteps
         
@@ -123,12 +123,20 @@ class TTFGasStorageEnv(gym.Env):
         return np.concatenate(([self.month], self.F_t, [self.V_t]), dtype=np.float32), {}
 
     def step(self, action_code):
-        print("len(action_code): ",len(action_code))
-        print("self.n_months: ", self.n_months)
+        # print("len(action_code): ",len(action_code))
+        # print("self.n_months: ", self.n_months)
         # Validate action dimension
         assert len(action_code) == self.n_months, "Action must have length = n_months"
 
-        action = np.array([self.action_meanings_list[i][action_code[i]] for i in range(self.n_months)])
+        if np.issubdtype(np.asarray(action_code).dtype, np.integer):
+            # Treat as indices and map to flows
+            action = np.array([self.action_meanings_list[i][int(action_code[i])]
+                               for i in range(self.n_months)])
+        else:
+            # Treat as flows directly
+            action = np.asarray(action_code, dtype=np.float32)
+
+        # action = np.array([self.action_meanings_list[i][action_code[i]] for i in range(self.n_months)])
         
         # last_action = -self.V_t - action.cumsum()[-1]
         # action = np.concatenate((action, np.array([last_action], dtype=np.float32)))
