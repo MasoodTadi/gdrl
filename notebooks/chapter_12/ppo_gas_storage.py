@@ -1113,8 +1113,8 @@ for seed in SEEDS:
         # 'env_name': 'LunarLander-v3',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 1000,
-        'goal_mean_100_reward': 50
+        'max_episodes': 100_000,
+        'goal_mean_100_reward': np.inf
     }
 
     # policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256)) 
