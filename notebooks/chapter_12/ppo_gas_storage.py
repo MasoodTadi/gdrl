@@ -1146,7 +1146,7 @@ for seed in SEEDS:
     max_buffer_episodes = 512#256#16
     max_buffer_episode_steps = 12#1000
     
-    entropy_loss_weight = 1e-3#0.0005#0.0001#0.01
+    entropy_loss_weight = 0.0#1e-3#0.0005#0.0001#0.01
     # entropy_loss_weight = float(os.environ.get('ENTROPY_LOSS_WEIGHT', 0.0001))
     tau = tau = 0.95#0.97
     n_workers = 32#64#8
