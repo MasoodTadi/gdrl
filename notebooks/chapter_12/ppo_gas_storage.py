@@ -1107,49 +1107,49 @@ ppo_results = []
 best_agent, best_eval_score = None, float('-inf')
 # SEEDS = (12, 34, 56, 78, 90)
 # SEEDS = (56, 78, 90)
-SEEDS = [90]
+SEEDS = [78]
 for seed in SEEDS:
     environment_settings = {
         # 'env_name': 'LunarLander-v3',
         'gamma': 0.99,
         'max_minutes': np.inf,
-        'max_episodes': 100_000,
+        'max_episodes': 20_000,
         'goal_mean_100_reward': np.inf
     }
 
     # policy_model_fn = lambda nS, nA: FCCA(nS, nA, hidden_dims=(256,256)) 
-    policy_model_fn = lambda nS, nA: FCCA_AR(nS, nA, hidden_dims=(256, 256))
-    policy_model_max_grad_norm = float('inf')
+    policy_model_fn = lambda nS, nA: FCCA_AR(nS, nA, hidden_dims=(512, 512, 256, 128))
+    policy_model_max_grad_norm = 1.0 #float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    policy_optimizer_lr = 0.0001#0.0003
+    policy_optimizer_lr = 3e-5#0.0001#0.0003
     # policy_optimizer_lr = float(os.environ.get('POLICY_LR', 0.0003))
-    policy_optimization_epochs = 80
-    policy_sample_ratio = 0.8
-    policy_clip_range = 0.05#0.2
+    policy_optimization_epochs = 10#80
+    policy_sample_ratio = 0.25#0.8
+    policy_clip_range = 0.1#0.05#0.2
     # policy_clip_range = float(os.environ.get('POLICY_CLIP', 0.1))
-    policy_stopping_kl = 0.005#0.02
+    policy_stopping_kl = 0.02#0.005#0.02
     # policy_stopping_kl = float(os.environ.get('POLICY_STOPPING', 0.02))
 
-    value_model_fn = lambda nS: FCV(nS, hidden_dims=(256,256))
-    value_model_max_grad_norm = float('inf')
+    value_model_fn = lambda nS: FCV(nS, hidden_dims=(512, 512, 256, 128))
+    value_model_max_grad_norm = 1.0#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    value_optimizer_lr = 0.0001#0.0005
+    value_optimizer_lr = 5e-4#0.0001#0.0005
     # value_optimizer_lr = float(os.environ.get('VALUE_LR', 0.0005))
-    value_optimization_epochs = 80
-    value_sample_ratio = 0.8
-    value_clip_range = float('inf')
+    value_optimization_epochs = 10#80
+    value_sample_ratio = 0.25#0.8
+    value_clip_range = 0.1#float('inf')
     # vc = os.environ.get('VALUE_CLIP', 'inf')
     # value_clip_range = float(vc if vc != 'inf' else float('inf'))
-    value_stopping_mse = 25
+    value_stopping_mse = 5.0#25
 
     episode_buffer_fn = lambda sd, ad, g, t, nw, me, mes: EpisodeBuffer(sd, ad, g, t, nw, me, mes)
     max_buffer_episodes = 512#256#16
     max_buffer_episode_steps = 12#1000
     
-    entropy_loss_weight = 0.0005#0.0001#0.01
+    entropy_loss_weight = 1e-3#0.0005#0.0001#0.01
     # entropy_loss_weight = float(os.environ.get('ENTROPY_LOSS_WEIGHT', 0.0001))
-    tau = 0.97
-    n_workers = 64#8
+    tau = tau = 0.95#0.97
+    n_workers = 32#64#8
 
     params = {
         'n_months': 12,
