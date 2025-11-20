@@ -423,6 +423,9 @@ class TTFGasStorageEnv(gym.Env):
             if self.rl_cumulative_reward < riv:
                 riv_penalty =  -self.penalty_lambda_riv * (riv - self.rl_cumulative_reward)
                 reward += riv_penalty
+            else:
+                riv_bonus =  -self.penalty_lambda_riv * (riv - self.rl_cumulative_reward)
+                reward += riv_bonus
             # new_volume = self.V_t + last_action  # Update storage
             # if new_volume + 1e-7 < self.V_min or new_volume - 1e-7 > self.V_max:
             #     cost1 += min(new_volume - self.V_min, self.V_max - new_volume) * self.penalty_lambda1
@@ -599,12 +602,11 @@ class FCDPAutoregressive(nn.Module):
                  input_dim,
                  action_bounds,
                  hidden_dims=(512, 512, 256, 128), 
-                 activation_fc=F.leaky_relu,
-                 dropout_rate=0.0):
+                 activation_fc=F.leaky_relu):
         super(FCDPAutoregressive, self).__init__()
         self.activation_fc = activation_fc
-        self.dropout_rate = dropout_rate
-        self.dropout = nn.Dropout(dropout_rate)  # one dropout layer reused
+        # self.dropout_rate = dropout_rate
+        # self.dropout = nn.Dropout(dropout_rate)  # one dropout layer reused
         self.env_min, self.env_max = action_bounds
 
         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
@@ -652,10 +654,10 @@ class FCDPAutoregressive(nn.Module):
         V_t = state[:, -1] * self.V_max  # De-normalize
 
         x = self.activation_fc(self.input_layer(state))
-        x = self.dropout(x)
+        # x = self.dropout(x)
         for layer in self.hidden_layers:
             x = self.activation_fc(layer(x))
-            x = self.dropout(x)
+            # x = self.dropout(x)
 
         actions = []
         cum_V = V_t.clone()
@@ -926,9 +928,9 @@ class DDPG():
         self.online_policy_model = self.policy_model_fn(nS, action_bounds)
 
         # Load pretrained actor weights into both online and target policy models
-        # pretrained_path = "fcdp_actor_ri.pth"  # path to your pretrained file
-        # self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
-        # self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
+        pretrained_path = "pretrained_policy_285.pth"  # path to your pretrained file
+        self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
+        self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
 
         self.update_networks(tau=1.0)
         self.value_optimizer = self.value_optimizer_fn(self.online_value_model, 
@@ -1168,13 +1170,13 @@ class NormalNoiseStrategy:
         # return final_action
         return action
 
-# SEEDS = (34, 56, 78, 90)
+SEEDS = (34, 56, 78, 90)
 #SEEDS = (56, 78, 90)
 # SEEDS = (
 #     12, 34, 56, 78, 90, 123, 145, 167, 189, 210,
 #     256, 312, 478, 512, 634, 758, 890, 912, 1024, 2048
 # )
-SEEDS = [78]
+# SEEDS = [78]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
@@ -1182,12 +1184,12 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 40_000, #15_000,
-        'goal_mean_100_reward': 4.5#-15#-150
+        'max_episodes': 50_000, #15_000,
+        'goal_mean_100_reward': 4.2#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
-    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128), dropout_rate=0.2) 
+    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.00003#0.0003#0.0005#0.003
@@ -1199,7 +1201,7 @@ for seed in SEEDS:
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
     #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
     # I wanna increase exploration_noise_ratio from 0.05 to 0.20 
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.10, final_noise_ratio = 0.01,
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.20, final_noise_ratio = 0.01,
                                                               max_episode=environment_settings['max_episodes'], noise_free_last=0.1 *environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
