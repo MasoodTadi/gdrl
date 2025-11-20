@@ -1023,7 +1023,7 @@ class PPO():
                   final_eval_score, score_std, training_time, wallclock_time))
         env.close() ; del env
         envs.close() ; del envs
-        self.get_cleaned_checkpoints()
+        # self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
 
     def evaluate(self, eval_model, eval_env, n_episodes=1, greedy=True):
