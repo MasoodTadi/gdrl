@@ -3,7 +3,7 @@
 #PBS -l select=1:ncpus=1:mem=4gb
 #PBS -l walltime=48:00:00
 # total combinations: 1296
-#PBS -J 1-192
+#PBS -J 1-501
 #PBS -o logs/hyperjob_%I.o
 #PBS -e logs/hyperjob_%I.e
 
