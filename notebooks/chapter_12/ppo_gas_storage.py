@@ -525,30 +525,35 @@ class FCCA(nn.Module):
 
 class FCCA_AR(nn.Module):
     def __init__(self, 
-                 input_dim,
-                 output_dim,   # tuple like (12,)
+                 input_dim,      # (14,)
+                 output_dim,     # e.g. [3, 5, 5, ..., 3]
+                 choice_values=None, # e.g., [-0.4, -0.2, 0.0, 0.2, 0.4]
                  hidden_dims=(256, 256),
                  activation_fc=F.relu):
         super(FCCA_AR, self).__init__()
         self.activation_fc = activation_fc
+        self.choice = torch.tensor(choice_values, dtype=torch.float32) if choice_values is not None \
+              else torch.tensor([-0.4, -0.2, 0.0, 0.2, 0.4], dtype=torch.float32)
+        self.n_steps = len(output_dim)  # e.g., 12 months
+        self.output_dims = output_dim   # e.g., [3,5,5,...,3]
 
+        # === Shared base MLP ===
         self.input_layer = nn.Linear(input_dim[0], hidden_dims[0])
-
         self.hidden_layers = nn.ModuleList()
         for i in range(len(hidden_dims) - 1):
-            self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+            self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i+1]))
 
+        # === One output head per step ===
         self.output_heads = nn.ModuleList()
-        # First output head: no prev action
-        self.output_heads.append(nn.Linear(hidden_dims[-1], 1))
-        # Rest output heads: hidden + prev action
-        for _ in range(1, output_dim[0]):
-            self.output_heads.append(nn.Linear(hidden_dims[-1] + 1, 1))
+        for i, n_choices in enumerate(self.output_dims):
+            # First head: no prev-action info
+            if i == 0:
+                self.output_heads.append(nn.Linear(hidden_dims[-1], n_choices))
+            else:
+                # Input includes hidden + prev expected flow
+                self.output_heads.append(nn.Linear(hidden_dims[-1] + 1, n_choices))
 
-        self.output_dim = output_dim
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.device = torch.device(device)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
 
     def _format(self, states):
@@ -559,101 +564,131 @@ class FCCA_AR(nn.Module):
         return states
 
     def forward(self, states):
-        x = self._format(states)
-        x = self.activation_fc(self.input_layer(x))
-        for hidden_layer in self.hidden_layers:
-            x = self.activation_fc(hidden_layer(x))
+        states = self._format(states)
+        batch_size = states.size(0)
 
-        logits = []
-        # First head: no prev_action
-        head_input = x
-        logit = self.output_heads[0](head_input).squeeze(1)
-        logits.append(logit)
+        t = states[:, 0].long()  # Month index, e.g., 0 to 11
+        V_t = states[:, -1]      # Current storage level
 
-        for i in range(1, len(self.output_heads)):
-            prev_action = logits[-1].detach()  # detach to prevent backprop loop
-            head_input = torch.cat([x, prev_action.unsqueeze(1)], dim=1)
-            logit = self.output_heads[i](head_input).squeeze(1)
-            logits.append(logit)
+        h = self.activation_fc(self.input_layer(states))
+        for layer in self.hidden_layers:
+            h = self.activation_fc(layer(h))
 
-        output = torch.stack(logits, dim=1)
-        assert output.shape[1] == self.output_dim[0], \
-            f"[FCCA_AR] output dim mismatch: got {output.shape[1]}, expected {self.output_dim[0]}"
-        return output # shape: (batch, n_actions)
+        logits_list = []
+        cum_flow = torch.zeros(batch_size, device=self.device)
 
-    def split_logits(self, logits):
-        # Here we treat each output head as scalar so no further splitting needed
-        return [logits[:, i] for i in range(logits.shape[1])]
+        for j, head in enumerate(self.output_heads):
+            if j == 0:
+                head_input = h
+            else:
+                prev_logits = logits_list[-1]
+                probs = F.softmax(prev_logits, dim=-1)
+                choices = self.choice[:self.output_dims[j-1]]
+                expected_prev_flow = torch.sum(probs * choices, dim=-1)
+                head_input = torch.cat([h, expected_prev_flow.unsqueeze(1)], dim=-1)
+
+            raw_logits = head(head_input)
+
+            # Determine if month j is expired: if (j+1) <= t → expired
+            expired = ((j + 1) <= t).float().view(-1, 1)
+
+            # Equality constraint on last month: enforce sum(flow) + V_t = 0
+            if j == len(self.output_heads) - 1:
+                desired = - (V_t + cum_flow)
+                choices = self.choice[:self.output_dims[j]]
+                diff = torch.abs(choices.view(1, -1) - desired.view(-1, 1))
+                closest_idx = diff.argmin(dim=1)
+                logits = torch.full_like(raw_logits, -1e10)
+                logits.scatter_(1, closest_idx.view(-1, 1), 1e10)
+            else:
+                logits = raw_logits
+
+            # If expired, force flow = 0
+            zero_idx = (self.choice == 0.0).nonzero(as_tuple=True)[0][0]
+            logits = logits * (1 - expired) + expired * -1e10
+            logits[:, zero_idx] = torch.where(expired.bool().squeeze(1), 1e10, logits[:, zero_idx])
+
+            if j != len(self.output_heads) - 1:
+                probs = F.softmax(logits, dim=-1)
+                expected_flow = torch.sum(probs * self.choice[:self.output_dims[j]], dim=-1)
+                cum_flow += expected_flow
+
+            logits_list.append(logits)
+
+        return logits_list
 
     def np_pass(self, states):
-        logits = self.forward(states)
-        split_logits = self.split_logits(logits)
-
-        actions, logpas, is_exploratory = [], [], []
-
-        for logit in split_logits:
-            dist = torch.distributions.Categorical(logits=logit.unsqueeze(-1))
-            action = dist.sample()
-            logpa = dist.log_prob(action)
-            exploratory = (action != logit.argmax(dim=-1))
-
-            actions.append(action)
-            logpas.append(logpa)
-            is_exploratory.append(exploratory)
-
-        actions = torch.stack(actions, dim=-1)
-        print(f"[DEBUG] FCCA_AR np_pass actions shape: {actions.shape}")
-        logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
-        is_exploratory = torch.stack(is_exploratory, dim=-1).any(dim=-1)
-
-        return actions.cpu().numpy(), logpas.cpu().numpy(), is_exploratory.cpu().numpy()
-
-    def select_action(self, states):
-        logits = self.forward(states)
-        split_logits = self.split_logits(logits)
+        logits_list = self.forward(states)
 
         actions = []
-        for logit in split_logits:
-            dist = torch.distributions.Categorical(logits=logit.unsqueeze(-1))
-            action = dist.sample()
-            actions.append(action)
+        logpas = []
+        exploratory = []
+
+        for i, logits in enumerate(logits_list):
+            dist = torch.distributions.Categorical(logits=logits)
+            idx = dist.sample()
+            flow = self.choice[idx]
+
+            logpa = dist.log_prob(idx)
+            greedy_idx = logits.argmax(dim=-1)
+            is_explore = (idx != greedy_idx)
+
+            actions.append(flow)
+            logpas.append(logpa)
+            exploratory.append(is_explore)
 
         actions = torch.stack(actions, dim=-1)
-        print(f"[DEBUG] FCCA_AR select_action shape: {actions.shape}")
+        logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
+        exploratory = torch.stack(exploratory, dim=-1).any(dim=-1)
+
+        return (
+            actions.detach().cpu().numpy(),
+            logpas.detach().cpu().numpy(),
+            exploratory.detach().cpu().numpy()
+        )
+        
+    def select_action(self, states):
+        logits_list = self.forward(states)
+        actions = []
+        for logits in logits_list:
+            dist = torch.distributions.Categorical(logits=logits)
+            idx = dist.sample()
+            flow = self.choice[idx]
+            actions.append(flow)
+        actions = torch.stack(actions, dim=-1)
+        return actions.squeeze(0).detach().cpu().numpy()
+
+    def select_greedy_action(self, states):
+        logits_list = self.forward(states)
+        actions = []
+        for logits in logits_list:
+            idx = logits.argmax(dim=-1)
+            flow = self.choice[idx]
+            actions.append(flow)
+        actions = torch.stack(actions, dim=-1)
         return actions.squeeze(0).detach().cpu().numpy()
 
     def get_predictions(self, states, actions):
         states = self._format(states)
-        logits = self.forward(states)
-        split_logits = self.split_logits(logits)
+        logits_list = self.forward(states)
 
         if not isinstance(actions, torch.Tensor):
-            actions = torch.tensor(actions, device=self.device, dtype=torch.long)
+            actions = torch.tensor(actions, device=self.device, dtype=torch.float32)
 
         logpas = []
         entropies = []
 
-        for idx, logit in enumerate(split_logits):
-            dist = torch.distributions.Categorical(logits=logit.unsqueeze(-1))
-            logpas.append(dist.log_prob(actions[:, idx]))
+        for i, logits in enumerate(logits_list):
+            dist = torch.distributions.Categorical(logits=logits)
+            choices = self.choice[:self.output_dims[i]]
+            idx = torch.abs(choices.view(1, -1) - actions[:, i].view(-1, 1)).argmin(dim=1)
+            logpas.append(dist.log_prob(idx))
             entropies.append(dist.entropy())
 
         logpas = torch.stack(logpas, dim=-1).sum(dim=-1)
         entropies = torch.stack(entropies, dim=-1).mean(dim=-1)
 
         return logpas, entropies
-
-    def select_greedy_action(self, states):
-        logits = self.forward(states)
-        split_logits = self.split_logits(logits)
-
-        greedy_actions = []
-        for logit in split_logits:
-            greedy_action = logit.argmax(dim=-1)
-            greedy_actions.append(greedy_action)
-
-        greedy_actions = torch.stack(greedy_actions, dim=-1)
-        return greedy_actions.squeeze(0).detach().cpu().numpy()
 
 class FCV(nn.Module):
     def __init__(self,
@@ -1017,12 +1052,12 @@ class PPO():
 ppo_results = []
 best_agent, best_eval_score = None, float('-inf')
 # SEEDS = (12, 34, 56, 78, 90)
-SEEDS = (56, 78, 90)
-# SEEDS = [90]
+# SEEDS = (56, 78, 90)
+SEEDS = [90]
 for seed in SEEDS:
     environment_settings = {
         # 'env_name': 'LunarLander-v3',
-        'gamma': 1.00,
+        'gamma': 0.99,
         'max_minutes': np.inf,
         'max_episodes': 1000,
         'goal_mean_100_reward': 50
