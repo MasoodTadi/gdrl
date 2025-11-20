@@ -96,16 +96,10 @@ parser = argparse.ArgumentParser()
 # parser.add_argument("--n_warmup_batches", type=int, default=10)
 # parser.add_argument("--tau", type=float, default=0.005)
 # parser.add_argument("--beta0", type=float, default=0.1)
-parser.add_argument("--noise_ratio", type=float, default=0.2)
-parser.add_argument("--dropout_rate", type=float, default=0.0)
-parser.add_argument("--policy_max_grad_norm", type=float, default=1.0)
+# parser.add_argument("--noise_ratio", type=float, default=0.2)
+# parser.add_argument("--dropout_rate", type=float, default=0.0)
+# parser.add_argument("--policy_max_grad_norm", type=float, default=1.0)
 parser.add_argument("--penalty_lambda_riv", type=float, default=0.0)
-
-
-
-
-
-
 # scenario index (e.g. PBS_ARRAY_INDEX)
 parser.add_argument("--scenario", type=int, default=-1)
 
@@ -485,6 +479,9 @@ class TTFGasStorageEnv(gym.Env):
             if self.rl_cumulative_reward < riv:
                 riv_penalty =  -self.penalty_lambda_riv * (riv - self.rl_cumulative_reward)
                 reward += riv_penalty
+            else:
+                riv_bonus =  -self.penalty_lambda_riv * (riv - self.rl_cumulative_reward)
+                reward += riv_bonus
             # new_volume = self.V_t + last_action  # Update storage
             # if new_volume + 1e-7 < self.V_min or new_volume - 1e-7 > self.V_max:
             #     cost1 += min(new_volume - self.V_min, self.V_max - new_volume) * self.penalty_lambda1
@@ -661,12 +658,11 @@ class FCDPAutoregressive(nn.Module):
                  input_dim,
                  action_bounds,
                  hidden_dims=(512, 512, 256, 128), 
-                 activation_fc=F.leaky_relu,
-                 dropout_rate=0.0):
+                 activation_fc=F.leaky_relu):
         super(FCDPAutoregressive, self).__init__()
         self.activation_fc = activation_fc
-        self.dropout_rate = dropout_rate
-        self.dropout = nn.Dropout(dropout_rate)  # one dropout layer reused
+        # self.dropout_rate = dropout_rate
+        # self.dropout = nn.Dropout(dropout_rate)  # one dropout layer reused
         self.env_min, self.env_max = action_bounds
 
         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
@@ -714,10 +710,10 @@ class FCDPAutoregressive(nn.Module):
         V_t = state[:, -1] * self.V_max  # De-normalize
 
         x = self.activation_fc(self.input_layer(state))
-        x = self.dropout(x)
+        # x = self.dropout(x)
         for layer in self.hidden_layers:
             x = self.activation_fc(layer(x))
-            x = self.dropout(x)
+            # x = self.dropout(x)
 
         actions = []
         cum_V = V_t.clone()
@@ -1249,26 +1245,26 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 20_000, #15_000,
+        'max_episodes': 50_000, #15_000,
         'goal_mean_100_reward': np.inf#4.1#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
     # policy_model_fn = lambda nS, bounds, hd=HIDDEN_DIMS: FCDPAutoregressive(nS, bounds, hidden_dims=hd) 
-    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128), dropout_rate=ARGS.dropout_rate) 
-    policy_max_grad_norm = 1#float('inf')
+    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
+    policy_max_grad_norm = float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.00003#ARGS.policy_lr#0.0003#0.0005#0.003
 
     # value_model_fn  = lambda nS, nA,    hd=HIDDEN_DIMS: FCQV(nS, nA, hidden_dims=hd)
     value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(512, 512, 256, 128))
-    value_max_grad_norm = 1#float('inf')
+    value_max_grad_norm = float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#ARGS.value_lr#0.0005#0.0003#0.0005#0.003
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
     #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
     # I wanna increase exploration_noise_ratio from 0.05 to 0.20 
-    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=ARGS.noise_ratio, final_noise_ratio = 0.01,
+    training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.2, final_noise_ratio = 0.01,
                                                               max_episode=environment_settings['max_episodes'], noise_free_last=0.1 *environment_settings['max_episodes'])
     # training_strategy_fn = lambda: NormalNoiseStrategy(exploration_noise_ratio=0.1)
     evaluation_strategy_fn = lambda bounds: GreedyStrategy(bounds)
