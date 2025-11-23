@@ -40,7 +40,4 @@ echo "  penalty_lambda_riv  = ${penalty_lambda_riv}"
 
 time python -u rolling_intrinsic_hyperparam_sweep.py \
     --scenario "${PBS_ARRAY_INDEX}" \
-    # --noise_ratio "${noise_ratio}" \
-    # --dropout_rate "${dropout_rate}" \
-    # --policy_max_grad_norm "${policy_max_grad_norm}" \
     --penalty_lambda_riv "${penalty_lambda_riv}" | tee "output_hyper_${PBS_ARRAY_INDEX}.log"
