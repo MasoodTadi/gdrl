@@ -1171,7 +1171,7 @@ class NormalNoiseStrategy:
         # return final_action
         return action
 
-SEEDS = (78, 90, 1024, 2048)
+SEEDS = (1, 78, 90, 1024, 2048)
 #SEEDS = (56, 78, 90)
 # SEEDS = (
 #     12, 34, 56, 78, 90, 123, 145, 167, 189, 210,
