@@ -53,7 +53,8 @@ EPS = 1e-6
 BEEP = lambda: os.system("printf '\a'")
 #RESULTS_DIR = os.path.join('..', 'results')
 
-plt.style.use('fivethirtyeight')
+# plt.style.use('fivethirtyeight')
+plt.style.use('default')
 params = {
     'figure.figsize': (15, 8),
     'font.size': 24,
@@ -1366,19 +1367,19 @@ fig, axs = plt.subplots(2, 1, figsize=(15,10), sharey=False, sharex=True)
 # DDPG
 axs[0].plot(ddpg_max_r, 'r', linewidth=1)
 axs[0].plot(ddpg_min_r, 'r', linewidth=1)
-axs[0].plot(ddpg_mean_r, 'r:', label='DDPG', linewidth=2)
+axs[0].plot(ddpg_mean_r, 'r:', label='Profit and Loss', linewidth=2)
 axs[0].fill_between(
     ddpg_x, ddpg_min_r, ddpg_max_r, facecolor='r', alpha=0.3)
 
 axs[1].plot(ddpg_max_s, 'r', linewidth=1)
 axs[1].plot(ddpg_min_s, 'r', linewidth=1)
-axs[1].plot(ddpg_mean_s, 'r:', label='DDPG', linewidth=2)
+axs[1].plot(ddpg_mean_s, 'r:', label='Profit and Loss', linewidth=2)
 axs[1].fill_between(
      ddpg_x, ddpg_min_s, ddpg_max_s, facecolor='r', alpha=0.3)
 
 # ALL
-axs[0].set_title('Moving Avg Reward (Training)')
-axs[1].set_title('Moving Avg Reward (Evaluation)')
+axs[0].set_title('Moving Average Return (Training)')
+axs[1].set_title('Moving Average Return (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
 plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_modified_3.png")
