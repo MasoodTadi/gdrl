@@ -927,10 +927,10 @@ class DDPG():
         self.target_policy_model = self.policy_model_fn(nS, action_bounds)
         self.online_policy_model = self.policy_model_fn(nS, action_bounds)
 
-        # Load pretrained actor weights into both online and target policy models
-        pretrained_path = "pretrained_policy_285.pth"  # path to your pretrained file
-        self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
-        self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
+        # # Load pretrained actor weights into both online and target policy models
+        # pretrained_path = "pretrained_policy_285.pth"  # path to your pretrained file
+        # self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
+        # self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
 
         self.update_networks(tau=1.0)
         self.value_optimizer = self.value_optimizer_fn(self.online_value_model, 
@@ -1170,7 +1170,7 @@ class NormalNoiseStrategy:
         # return final_action
         return action
 
-SEEDS = (34, 56, 78, 90)
+SEEDS = (78, 90, 1024, 2048)
 #SEEDS = (56, 78, 90)
 # SEEDS = (
 #     12, 34, 56, 78, 90, 123, 145, 167, 189, 210,
@@ -1184,20 +1184,20 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,#1.0,
         'max_minutes': np.inf,#20,
-        'max_episodes': 50_000, #15_000,
-        'goal_mean_100_reward': 4.2#-15#-150
+        'max_episodes': 20_000, #15_000,
+        'goal_mean_100_reward': np.inf#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
     policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
-    policy_max_grad_norm = 1#float('inf')
+    policy_max_grad_norm = float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.00003#0.0003#0.0005#0.003
 
     value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(512, 512, 256, 128)) 
-    value_max_grad_norm = 1#float('inf')
+    value_max_grad_norm = float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
-    value_optimizer_lr = 0.005#0.0005#0.0003#0.0005#0.003
+    value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
     #                                                                                                                           noise_free_last=0.2 * environment_settings['max_episodes'])
     # I wanna increase exploration_noise_ratio from 0.05 to 0.20 
