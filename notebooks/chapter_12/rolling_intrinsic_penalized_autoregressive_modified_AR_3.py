@@ -97,9 +97,9 @@ class TTFGasStorageEnv(gym.Env):
 
         # Stochastic Variance v_t
         self.initial_v = params['initial_v'] # Initial variance
-        self.kappa_v = params['kappa_v'] # Long‐run mean of v_t
-        self.sigma_v = params['sigma_v'] # Speed of mean reversion for v_t
-        self.theta_v = params['theta_v'] # Volatility coefficient (diffusion) for v_t
+        self.kappa_v = params['kappa_v'] # Speed of mean reversion for v_t
+        self.sigma_v = params['sigma_v'] # Volatility coefficient (diffusion) for v_t
+        self.theta_v = params['theta_v'] # Long‐run mean of v_t
 
         # Spot Price Factor S_t
         self.initial_spot_price = params['initial_spot_price'] # Initial (de‐seasoned) spot price.
@@ -1171,19 +1171,19 @@ class NormalNoiseStrategy:
         # return final_action
         return action
 
-SEEDS = (1, 78, 90, 1024, 2048)
+#SEEDS = (1, 78, 90, 1024, 2048)
 #SEEDS = (56, 78, 90)
 # SEEDS = (
 #     12, 34, 56, 78, 90, 123, 145, 167, 189, 210,
 #     256, 312, 478, 512, 634, 758, 890, 912, 1024, 2048
 # )
-# SEEDS = [78]
+SEEDS = [78]
 ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
     environment_settings = {
         'env_name': 'TTFGasStorageEnv',
-        'gamma': 0.99,#1.0,
+        'gamma': 1.0,
         'max_minutes': np.inf,#20,
         'max_episodes': 20_000, #15_000,
         'goal_mean_100_reward': np.inf#-15#-150

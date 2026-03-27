@@ -1239,7 +1239,7 @@ best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
     environment_settings = {
         'env_name': 'TTFGasStorageEnv',
-        'gamma': 0.99,#1.0,
+        'gamma': 1.0,
         'max_minutes': np.inf,#20,
         'max_episodes': 20_000, #15_000,
         'goal_mean_100_reward': np.inf#-15#-150
@@ -1410,7 +1410,7 @@ for seed in SEEDS:
 ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
-torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_n_step.pth")
 
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
 ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
@@ -1797,4 +1797,4 @@ plt.ylabel("Realized Reservoir Value")
 plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
-plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_modified_3.png")
+plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_modified_n_step.png")
