@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N rolling_intrinsic_penalized_autoregressive_modified_AR_3
-#PBS -l select=1:ncpus=16:mem=32gb
+#PBS -l select=1:ncpus=16:mem=64gb
 #PBS -l walltime=96:00:00
 #PBS -o rolling_intrinsic_penalized_autoregressive_modified_AR_3.o
 #PBS -e rolling_intrinsic_penalized_autoregressive_modified_AR_3.e

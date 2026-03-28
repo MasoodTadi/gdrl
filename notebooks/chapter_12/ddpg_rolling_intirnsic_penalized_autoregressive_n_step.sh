@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -N rolling_intrinsic_penalized_autoregressive_modified_AR_n_step
-#PBS -l select=1:ncpus=16:mem=32gb
+#PBS -l select=1:ncpus=16:mem=64gb
 #PBS -l walltime=96:00:00
 #PBS -o rolling_intrinsic_penalized_autoregressive_modified_AR_n_step.o
 #PBS -e rolling_intrinsic_penalized_autoregressive_modified_AR_n_step.e
@@ -12,7 +12,7 @@ pwd
 #module load python/3.8
 
 # Activate the virtual environment
-source /storage/praha1/home/tadim/myenv/bin/activate
+source /storage/praha1/home/tadim/myenv/bin/activat
 
 # Set PYTHONPATH to include local packages
 #export PYTHONPATH=$PYTHONPATH:/storage/praha1/home/tadim/.local/lib/python3.8/site-packages
