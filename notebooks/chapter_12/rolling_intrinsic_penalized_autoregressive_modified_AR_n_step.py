@@ -1239,7 +1239,7 @@ best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
     environment_settings = {
         'env_name': 'TTFGasStorageEnv',
-        'gamma': 1.0,
+        'gamma': 0.99,
         'max_minutes': np.inf,#20,
         'max_episodes': 20_000, #15_000,
         'goal_mean_100_reward': np.inf#-15#-150
@@ -1247,12 +1247,12 @@ for seed in SEEDS:
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
     policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
-    policy_max_grad_norm = float('inf')
+    policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.00003#0.0003#0.0005#0.003
 
     value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(512, 512, 256, 128)) 
-    value_max_grad_norm = float('inf')
+    value_max_grad_norm = 1#float('inf')
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005#0.0003#0.0005#0.003
     # training_strategy_fn = lambda bounds: NormalNoiseStrategy(bounds, exploration_noise_ratio=0.35, final_noise_ratio = 1e-6, max_episode=environment_settings['max_episodes'], 
@@ -1411,6 +1411,7 @@ ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
 torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_n_step.pth")
+torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_n_step.pth")
 
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
 ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
