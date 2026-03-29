@@ -1441,7 +1441,7 @@ axs[0].set_title('Moving Average Return (Training)')
 axs[1].set_title('Moving Average Return (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
-plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_modified_3.png")
+plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_modified_n_step.png")
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
     futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0

@@ -1269,7 +1269,7 @@ for seed in SEEDS:
     n_warmup_batches = 200#10#1#200#5
     update_target_every_steps = 1
     tau = 0.005#0.005
-    n_step = 6
+    n_step = 12
     
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
