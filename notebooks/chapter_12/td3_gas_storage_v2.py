@@ -1282,7 +1282,7 @@ for seed in SEEDS:
                 tau,
                 policy_update_delay=1,#2,
                 target_policy_noise=0.03,#0.2,
-                target_policy_noise_clip=0.08 #0.5)
+                target_policy_noise_clip=0.08) #0.5)
 
     #make_env_fn, make_env_kargs = get_make_env_fn(env_name=env_name)
     # Example usage
