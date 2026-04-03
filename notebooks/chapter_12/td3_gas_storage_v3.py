@@ -1,3 +1,4 @@
+# v3 is exactly v2 of td3 except that the FCQ is updated such that the state and action are concatenated in Input-layer 
 import warnings ; warnings.filterwarnings('ignore')
 import os
 os.environ['CUDA_DEVICE_ORDER']='PCI_BUS_ID'
@@ -459,59 +460,60 @@ class GreedyStrategy():
         return np.reshape(action, self.high.shape)
 
 class FCQV(nn.Module):
-    def __init__(self, 
-                 input_dim, 
-                 output_dim, 
-                 hidden_dims=(512, 512, 256, 128),
-                 activation_fc=F.leaky_relu):
-        super(FCQV, self).__init__()
+    def __init__(self, input_dim, output_dim, hidden_dims=(512, 512, 256, 128), activation_fc=F.leaky_relu):
+        super().__init__()
         self.activation_fc = activation_fc
 
-        self.input_layer = nn.Linear(input_dim, hidden_dims[0])
+        self.input_layer = nn.Linear(input_dim + output_dim, hidden_dims[0])
         self.input_norm = nn.LayerNorm(hidden_dims[0])
-        
+
         self.hidden_layers = nn.ModuleList()
         self.hidden_norms = nn.ModuleList()
-        for i in range(len(hidden_dims)-1):
-            in_dim = hidden_dims[i]
-            if i == 0: 
-                in_dim += output_dim
-            hidden_layer = nn.Linear(in_dim, hidden_dims[i+1])
-            self.hidden_layers.append(hidden_layer)
+        for i in range(len(hidden_dims) - 1):
+            self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
             self.hidden_norms.append(nn.LayerNorm(hidden_dims[i + 1]))
+
         self.output_layer = nn.Linear(hidden_dims[-1], 1)
 
-        device = "cpu"
-        if torch.cuda.is_available():
-            device = "cuda:0"
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
         self.to(self.device)
-    
+
     def _format(self, state, action):
-        x, u = state, action
-        if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x, 
-                             device=self.device, 
-                             dtype=torch.float32)
-            x = x.unsqueeze(0)
-        if not isinstance(u, torch.Tensor):
-            u = torch.tensor(u, 
-                             device=self.device, 
-                             dtype=torch.float32)
-            u = u.unsqueeze(0)
-        return x, u
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state, device=self.device, dtype=torch.float32)
+        if not isinstance(action, torch.Tensor):
+            action = torch.tensor(action, device=self.device, dtype=torch.float32)
+        if state.ndim == 1:
+            state = state.unsqueeze(0)
+        if action.ndim == 1:
+            action = action.unsqueeze(0)
+        return state, action
+
+    def _normalize_state(self, state):
+        state = state.clone()
+        state[:, 0] /= 11.0
+        price_scale = torch.clamp(state[:, 1:13].amax(dim=1, keepdim=True), min=1e-6)
+        state[:, 1:13] /= price_scale
+        state[:, -1] /= 1.0
+        return state
+
+    def _normalize_action(self, action):
+        return action / 0.4
 
     def forward(self, state, action):
         x, u = self._format(state, action)
-        x = self.activation_fc(self.input_norm(self.input_layer(x)))
-        for i, hidden_layer in enumerate(self.hidden_layers):
-            if i == 0:
-                x = torch.cat((x, u), dim=1)
-            x = hidden_layer(x)
-            x = self.hidden_norms[i](x)  
-            x = self.activation_fc(x)
-        return self.output_layer(x)
-    
+        x = self._normalize_state(x)
+        u = self._normalize_action(u)
+
+        xu = torch.cat([x, u], dim=1)
+        h = self.activation_fc(self.input_norm(self.input_layer(xu)))
+
+        for layer, norm in zip(self.hidden_layers, self.hidden_norms):
+            h = self.activation_fc(norm(layer(h)))
+
+        return self.output_layer(h)
+        
     def load(self, experiences):
         states, actions, rewards, new_states, is_terminals = experiences
         states = torch.from_numpy(states).float().to(self.device)
@@ -520,6 +522,69 @@ class FCQV(nn.Module):
         rewards = torch.from_numpy(rewards).float().to(self.device)
         is_terminals = torch.from_numpy(is_terminals).float().to(self.device)
         return states, actions, rewards, new_states, is_terminals
+        
+        # class FCQV(nn.Module):
+#     def __init__(self, 
+#                  input_dim, 
+#                  output_dim, 
+#                  hidden_dims=(512, 512, 256, 128),
+#                  activation_fc=F.leaky_relu):
+#         super(FCQV, self).__init__()
+#         self.activation_fc = activation_fc
+
+#         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
+#         self.input_norm = nn.LayerNorm(hidden_dims[0])
+        
+#         self.hidden_layers = nn.ModuleList()
+#         self.hidden_norms = nn.ModuleList()
+#         for i in range(len(hidden_dims)-1):
+#             in_dim = hidden_dims[i]
+#             if i == 0: 
+#                 in_dim += output_dim
+#             hidden_layer = nn.Linear(in_dim, hidden_dims[i+1])
+#             self.hidden_layers.append(hidden_layer)
+#             self.hidden_norms.append(nn.LayerNorm(hidden_dims[i + 1]))
+#         self.output_layer = nn.Linear(hidden_dims[-1], 1)
+
+#         device = "cpu"
+#         if torch.cuda.is_available():
+#             device = "cuda:0"
+#         self.device = torch.device(device)
+#         self.to(self.device)
+    
+#     def _format(self, state, action):
+#         x, u = state, action
+#         if not isinstance(x, torch.Tensor):
+#             x = torch.tensor(x, 
+#                              device=self.device, 
+#                              dtype=torch.float32)
+#             x = x.unsqueeze(0)
+#         if not isinstance(u, torch.Tensor):
+#             u = torch.tensor(u, 
+#                              device=self.device, 
+#                              dtype=torch.float32)
+#             u = u.unsqueeze(0)
+#         return x, u
+
+#     def forward(self, state, action):
+#         x, u = self._format(state, action)
+#         x = self.activation_fc(self.input_norm(self.input_layer(x)))
+#         for i, hidden_layer in enumerate(self.hidden_layers):
+#             if i == 0:
+#                 x = torch.cat((x, u), dim=1)
+#             x = hidden_layer(x)
+#             x = self.hidden_norms[i](x)  
+#             x = self.activation_fc(x)
+#         return self.output_layer(x)
+    
+#     def load(self, experiences):
+#         states, actions, rewards, new_states, is_terminals = experiences
+#         states = torch.from_numpy(states).float().to(self.device)
+#         actions = torch.from_numpy(actions).float().to(self.device)
+#         new_states = torch.from_numpy(new_states).float().to(self.device)
+#         rewards = torch.from_numpy(rewards).float().to(self.device)
+#         is_terminals = torch.from_numpy(is_terminals).float().to(self.device)
+#         return states, actions, rewards, new_states, is_terminals
 
 # class FCDPAutoregressive(nn.Module):
 #     def __init__(self, 
@@ -1280,9 +1345,9 @@ for seed in SEEDS:
                 n_warmup_batches,
                 update_target_every_steps,
                 tau,
-                policy_update_delay=1,#2,
-                target_policy_noise=0.03,#0.2,
-                target_policy_noise_clip=0.08 #0.5)
+                policy_update_delay=1,
+                target_policy_noise=0.03,
+                target_policy_noise_clip=0.08)
 
     #make_env_fn, make_env_kargs = get_make_env_fn(env_name=env_name)
     # Example usage
@@ -1404,9 +1469,9 @@ for seed in SEEDS:
 td3_results = np.array(td3_results)
 _ = BEEP()
 
-torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_td3_v2.pth")
-torch.save(best_agent.online_value_model_1.state_dict(), "online_value_model_1_autoregressive_td3_v2.pth")
-torch.save(best_agent.online_value_model_2.state_dict(), "online_value_model_2_autoregressive_td3_v2.pth")
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_td3_v3.pth")
+torch.save(best_agent.online_value_model_1.state_dict(), "online_value_model_1_autoregressive_td3_v3.pth")
+torch.save(best_agent.online_value_model_2.state_dict(), "online_value_model_2_autoregressive_td3_v3.pth")
 
 td3_max_t, td3_max_r, td3_max_s, \
 td3_max_sec, td3_max_rt = np.max(td3_results, axis=0).T
@@ -1436,7 +1501,7 @@ axs[0].set_title('Moving Average Return (Training)')
 axs[1].set_title('Moving Average Return (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
-plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_td3_v2.png")
+plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_td3_v3.png")
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
     futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
@@ -1793,4 +1858,4 @@ plt.ylabel("Realized Reservoir Value")
 plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
-plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_td3_v2.png")
+plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_td3_v3.png")

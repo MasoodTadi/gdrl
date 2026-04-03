@@ -1,3 +1,5 @@
+# In v4 the FCQ is updated such that we have Separate state/action encoders + fusion
+
 import warnings ; warnings.filterwarnings('ignore')
 import os
 os.environ['CUDA_DEVICE_ORDER']='PCI_BUS_ID'
@@ -70,7 +72,9 @@ np.set_printoptions(suppress=True)
 class TTFGasStorageEnv(gym.Env):
     def __init__(self, params):
         super(TTFGasStorageEnv, self).__init__()
-        
+
+        self.price_mean = params["price_mean"]
+        self.price_std = params["price_std"]
         self.max_timesteps = 30 * 12 + 1 #Simplistic Case
         self.seed_value = params.get('seed', None)
         self.dt = 1.0 / self.max_timesteps
@@ -457,7 +461,7 @@ class GreedyStrategy():
 
         action = np.clip(greedy_action, self.low, self.high)
         return np.reshape(action, self.high.shape)
-
+        
 class FCQV(nn.Module):
     def __init__(self, 
                  input_dim, 
@@ -467,18 +471,30 @@ class FCQV(nn.Module):
         super(FCQV, self).__init__()
         self.activation_fc = activation_fc
 
-        self.input_layer = nn.Linear(input_dim, hidden_dims[0])
-        self.input_norm = nn.LayerNorm(hidden_dims[0])
-        
-        self.hidden_layers = nn.ModuleList()
-        self.hidden_norms = nn.ModuleList()
-        for i in range(len(hidden_dims)-1):
-            in_dim = hidden_dims[i]
-            if i == 0: 
-                in_dim += output_dim
-            hidden_layer = nn.Linear(in_dim, hidden_dims[i+1])
-            self.hidden_layers.append(hidden_layer)
-            self.hidden_norms.append(nn.LayerNorm(hidden_dims[i + 1]))
+        # --- State encoder ---
+        self.state_input_layer = nn.Linear(input_dim, hidden_dims[0])
+        self.state_input_norm = nn.LayerNorm(hidden_dims[0])
+
+        self.state_hidden_layers = nn.ModuleList()
+        self.state_hidden_norms = nn.ModuleList()
+        for i in range(len(hidden_dims) - 1):
+            self.state_hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+            self.state_hidden_norms.append(nn.LayerNorm(hidden_dims[i + 1]))
+
+        # --- Action encoder ---
+        self.action_input_layer = nn.Linear(output_dim, hidden_dims[0])
+        self.action_input_norm = nn.LayerNorm(hidden_dims[0])
+
+        self.action_hidden_layers = nn.ModuleList()
+        self.action_hidden_norms = nn.ModuleList()
+        for i in range(len(hidden_dims) - 1):
+            self.action_hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+            self.action_hidden_norms.append(nn.LayerNorm(hidden_dims[i + 1]))
+
+        # --- Fusion head ---
+        fusion_dim = hidden_dims[-1] * 2
+        self.fusion_layer = nn.Linear(fusion_dim, hidden_dims[-1])
+        self.fusion_norm = nn.LayerNorm(hidden_dims[-1])
         self.output_layer = nn.Linear(hidden_dims[-1], 1)
 
         device = "cpu"
@@ -486,32 +502,54 @@ class FCQV(nn.Module):
             device = "cuda:0"
         self.device = torch.device(device)
         self.to(self.device)
-    
+
     def _format(self, state, action):
         x, u = state, action
         if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x, 
-                             device=self.device, 
-                             dtype=torch.float32)
-            x = x.unsqueeze(0)
+            x = torch.tensor(x, device=self.device, dtype=torch.float32)
         if not isinstance(u, torch.Tensor):
-            u = torch.tensor(u, 
-                             device=self.device, 
-                             dtype=torch.float32)
+            u = torch.tensor(u, device=self.device, dtype=torch.float32)
+
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+        if u.ndim == 1:
             u = u.unsqueeze(0)
+
         return x, u
+
+    def _normalize_state(self, state):
+        state = state.clone()
+        state[:, 0] /= 11.0  # month normalization
+        price_scale = torch.clamp(state[:, 1:13].amax(dim=1, keepdim=True), min=1e-6)
+        state[:, 1:13] /= price_scale
+        state[:, -1] /= 1.0  # V_max = 1 in your setup
+        return state
+
+    def _normalize_action(self, action):
+        return action / 0.4  # I_max / W_max = 0.4 in your setup
 
     def forward(self, state, action):
         x, u = self._format(state, action)
-        x = self.activation_fc(self.input_norm(self.input_layer(x)))
-        for i, hidden_layer in enumerate(self.hidden_layers):
-            if i == 0:
-                x = torch.cat((x, u), dim=1)
-            x = hidden_layer(x)
-            x = self.hidden_norms[i](x)  
-            x = self.activation_fc(x)
-        return self.output_layer(x)
-    
+
+        x = self._normalize_state(x)
+        u = self._normalize_action(u)
+
+        # --- State pathway ---
+        hs = self.activation_fc(self.state_input_norm(self.state_input_layer(x)))
+        for layer, norm in zip(self.state_hidden_layers, self.state_hidden_norms):
+            hs = self.activation_fc(norm(layer(hs)))
+
+        # --- Action pathway ---
+        ha = self.activation_fc(self.action_input_norm(self.action_input_layer(u)))
+        for layer, norm in zip(self.action_hidden_layers, self.action_hidden_norms):
+            ha = self.activation_fc(norm(layer(ha)))
+
+        # --- Fusion ---
+        h = torch.cat((hs, ha), dim=1)
+        h = self.activation_fc(self.fusion_norm(self.fusion_layer(h)))
+
+        return self.output_layer(h)
+
     def load(self, experiences):
         states, actions, rewards, new_states, is_terminals = experiences
         states = torch.from_numpy(states).float().to(self.device)
@@ -520,6 +558,69 @@ class FCQV(nn.Module):
         rewards = torch.from_numpy(rewards).float().to(self.device)
         is_terminals = torch.from_numpy(is_terminals).float().to(self.device)
         return states, actions, rewards, new_states, is_terminals
+
+# class FCQV(nn.Module):
+#     def __init__(self, 
+#                  input_dim, 
+#                  output_dim, 
+#                  hidden_dims=(512, 512, 256, 128),
+#                  activation_fc=F.leaky_relu):
+#         super(FCQV, self).__init__()
+#         self.activation_fc = activation_fc
+
+#         self.input_layer = nn.Linear(input_dim, hidden_dims[0])
+#         self.input_norm = nn.LayerNorm(hidden_dims[0])
+        
+#         self.hidden_layers = nn.ModuleList()
+#         self.hidden_norms = nn.ModuleList()
+#         for i in range(len(hidden_dims)-1):
+#             in_dim = hidden_dims[i]
+#             if i == 0: 
+#                 in_dim += output_dim
+#             hidden_layer = nn.Linear(in_dim, hidden_dims[i+1])
+#             self.hidden_layers.append(hidden_layer)
+#             self.hidden_norms.append(nn.LayerNorm(hidden_dims[i + 1]))
+#         self.output_layer = nn.Linear(hidden_dims[-1], 1)
+
+#         device = "cpu"
+#         if torch.cuda.is_available():
+#             device = "cuda:0"
+#         self.device = torch.device(device)
+#         self.to(self.device)
+    
+#     def _format(self, state, action):
+#         x, u = state, action
+#         if not isinstance(x, torch.Tensor):
+#             x = torch.tensor(x, 
+#                              device=self.device, 
+#                              dtype=torch.float32)
+#             x = x.unsqueeze(0)
+#         if not isinstance(u, torch.Tensor):
+#             u = torch.tensor(u, 
+#                              device=self.device, 
+#                              dtype=torch.float32)
+#             u = u.unsqueeze(0)
+#         return x, u
+
+#     def forward(self, state, action):
+#         x, u = self._format(state, action)
+#         x = self.activation_fc(self.input_norm(self.input_layer(x)))
+#         for i, hidden_layer in enumerate(self.hidden_layers):
+#             if i == 0:
+#                 x = torch.cat((x, u), dim=1)
+#             x = hidden_layer(x)
+#             x = self.hidden_norms[i](x)  
+#             x = self.activation_fc(x)
+#         return self.output_layer(x)
+    
+#     def load(self, experiences):
+#         states, actions, rewards, new_states, is_terminals = experiences
+#         states = torch.from_numpy(states).float().to(self.device)
+#         actions = torch.from_numpy(actions).float().to(self.device)
+#         new_states = torch.from_numpy(new_states).float().to(self.device)
+#         rewards = torch.from_numpy(rewards).float().to(self.device)
+#         is_terminals = torch.from_numpy(is_terminals).float().to(self.device)
+#         return states, actions, rewards, new_states, is_terminals
 
 # class FCDPAutoregressive(nn.Module):
 #     def __init__(self, 
@@ -602,6 +703,8 @@ class FCDPAutoregressive(nn.Module):
     def __init__(self, 
                  input_dim,
                  action_bounds,
+                 price_mean,
+                 price_std,
                  hidden_dims=(512, 512, 256, 128), 
                  activation_fc=F.leaky_relu):
         super(FCDPAutoregressive, self).__init__()
@@ -634,12 +737,30 @@ class FCDPAutoregressive(nn.Module):
         self.I_max = torch.tensor(0.4, device=self.device)
         self.W_max = torch.tensor(0.4, device=self.device)
 
-    def _normalize(self, state):
+        self.price_mean = torch.tensor(price_mean, device=self.device, dtype=torch.float32)
+        self.price_std = torch.tensor(price_std, device=self.device, dtype=torch.float32)
+
+    def _normalize(self, state: torch.Tensor) -> torch.Tensor:
         state = state.clone()
-        state[:, 0] /= 11.0  # Normalize month
-        state[:, 1:13] /= torch.clamp(state[:, 1:13].max(dim=1, keepdim=True).values, min=1e-6)  # Normalize prices
-        state[:, -1] /= self.V_max  # Normalize V_t
+
+        # t in {0,...,11} -> [0,1]
+        state[:, 0] = state[:, 0] / 11.0
+
+        # Replace per-sample normalization by global mean/std normalization
+        prices = state[:, 1:13]
+        prices = (prices - self.price_mean) / self.price_std
+        state[:, 1:13] = prices
+
+        # Normalize V_t
+        state[:, -1] = state[:, -1] / self.V_max
+
         return state
+    # def _normalize(self, state):
+    #     state = state.clone()
+    #     state[:, 0] /= 11.0  # Normalize month
+    #     state[:, 1:13] /= torch.clamp(state[:, 1:13].max(dim=1, keepdim=True).values, min=1e-6)  # Normalize prices
+    #     state[:, -1] /= self.V_max  # Normalize V_t
+    #     return state
 
     def _format(self, state):
         if not isinstance(state, torch.Tensor):
@@ -770,7 +891,7 @@ class PrioritizedReplayBuffer():
     def __str__(self):
         return str(self.memory[:self.n_entries])
 
-class TD3():
+class DDPG():
     def __init__(self, 
                  replay_buffer_fn,
                  policy_model_fn, 
@@ -785,10 +906,7 @@ class TD3():
                  evaluation_strategy_fn,
                  n_warmup_batches,
                  update_target_every_steps,
-                 tau,
-                 policy_update_delay=2,
-                 target_policy_noise=0.2,
-                 target_policy_noise_clip=0.5):
+                 tau):
         self.replay_buffer_fn = replay_buffer_fn
 
         self.policy_model_fn = policy_model_fn
@@ -808,89 +926,61 @@ class TD3():
         self.update_target_every_steps = update_target_every_steps
         self.tau = tau
 
-        # --- TD3 additions ---
-        self.policy_update_delay = policy_update_delay
-        self.target_policy_noise = target_policy_noise
-        self.target_policy_noise_clip = target_policy_noise_clip
-        self.learn_step = 0
+    # def optimize_model(self, experiences):
+    #     states, actions, rewards, next_states, is_terminals = experiences
+    #     batch_size = len(is_terminals)
 
-    def _add_target_policy_noise(self, target_actions):
-        noise = torch.randn_like(target_actions) * self.target_policy_noise
-        noise = torch.clamp(noise, -self.target_policy_noise_clip, self.target_policy_noise_clip)
-        noisy_actions = target_actions + noise
+    #     argmax_a_q_sp = self.target_policy_model(next_states)
+    #     max_a_q_sp = self.target_value_model(next_states, argmax_a_q_sp)
+    #     target_q_sa = rewards + self.gamma * max_a_q_sp * (1 - is_terminals)
+    #     q_sa = self.online_value_model(states, actions)
+    #     td_error = q_sa - target_q_sa.detach()
+    #     value_loss = td_error.pow(2).mul(0.5).mean()
+    #     self.value_optimizer.zero_grad()
+    #     value_loss.backward()
+    #     torch.nn.utils.clip_grad_norm_(self.online_value_model.parameters(), 
+    #                                    self.value_max_grad_norm)
+    #     self.value_optimizer.step()
 
-        low = self.action_low_t.unsqueeze(0).expand_as(noisy_actions)
-        high = self.action_high_t.unsqueeze(0).expand_as(noisy_actions)
-        noisy_actions = torch.max(torch.min(noisy_actions, high), low)
-        return noisy_actions
+    #     argmax_a_q_s = self.online_policy_model(states)
+    #     max_a_q_s = self.online_value_model(states, argmax_a_q_s)
+    #     policy_loss = -max_a_q_s.mean()
+    #     self.policy_optimizer.zero_grad()
+    #     policy_loss.backward()
+    #     torch.nn.utils.clip_grad_norm_(self.online_policy_model.parameters(), 
+    #                                    self.policy_max_grad_norm)        
+    #     self.policy_optimizer.step()
 
     def optimize_model(self, idxs_weights_samples):
         idxs, weights, experiences = idxs_weights_samples
         states, actions, rewards, next_states, is_terminals = experiences
+        batch_size = len(is_terminals)
 
-        weights = torch.tensor(weights, device=self.online_value_model_1.device, dtype=torch.float32)
-
-        # ----------------------------
-        # TD3 target:
-        # y = r + gamma * min(Q1', Q2')(s', pi'(s') + clipped_noise)
-        # ----------------------------
-        with torch.no_grad():
-            next_actions = self.target_policy_model(next_states)
-            next_actions = self._add_target_policy_noise(next_actions)
-
-            target_q1 = self.target_value_model_1(next_states, next_actions)
-            target_q2 = self.target_value_model_2(next_states, next_actions)
-            target_q = torch.min(target_q1, target_q2)
-
-            target_q_sa = rewards + self.gamma * target_q * (1 - is_terminals)
-
-        # ----------------------------
-        # Critic 1 update
-        # ----------------------------
-        q1_sa = self.online_value_model_1(states, actions)
-        td_error1 = q1_sa - target_q_sa
-        value_loss1 = (td_error1.pow(2) * weights).mean()
-
-        self.value_optimizer_1.zero_grad()
-        value_loss1.backward()
-        torch.nn.utils.clip_grad_norm_(self.online_value_model_1.parameters(),
+        argmax_a_q_sp = self.target_policy_model(next_states)
+        max_a_q_sp = self.target_value_model(next_states, argmax_a_q_sp)
+        target_q_sa = rewards + self.gamma * max_a_q_sp * (1 - is_terminals)
+        q_sa = self.online_value_model(states, actions)
+        td_error = q_sa - target_q_sa.detach()
+        weights = torch.tensor(weights, device=td_error.device, dtype=td_error.dtype)
+        value_loss = (td_error.pow(2) * weights).mean()  # apply importance weights
+        self.value_optimizer.zero_grad()
+        value_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.online_value_model.parameters(), 
                                        self.value_max_grad_norm)
-        self.value_optimizer_1.step()
+        self.value_optimizer.step()
 
-        # ----------------------------
-        # Critic 2 update
-        # ----------------------------
-        q2_sa = self.online_value_model_2(states, actions)
-        td_error2 = q2_sa - target_q_sa
-        value_loss2 = (td_error2.pow(2) * weights).mean()
+        argmax_a_q_s = self.online_policy_model(states)
+        max_a_q_s = self.online_value_model(states, argmax_a_q_s)
+        policy_loss = -max_a_q_s.mean()
+        self.policy_optimizer.zero_grad()
+        policy_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.online_policy_model.parameters(), 
+                                       self.policy_max_grad_norm)        
+        self.policy_optimizer.step()
 
-        self.value_optimizer_2.zero_grad()
-        value_loss2.backward()
-        torch.nn.utils.clip_grad_norm_(self.online_value_model_2.parameters(),
-                                       self.value_max_grad_norm)
-        self.value_optimizer_2.step()
+        # Update TD errors in buffer
+        self.replay_buffer.update(idxs.squeeze(), td_error.detach().cpu().numpy().squeeze())
 
-        # Update PER priorities using avg absolute TD error from twin critics
-        td_error = 0.5 * (td_error1.detach() + td_error2.detach())
-        self.replay_buffer.update(idxs.squeeze(), td_error.abs().cpu().numpy().squeeze())
-
-        # ----------------------------
-        # Delayed actor update
-        # ----------------------------
-        self.learn_step += 1
-        if self.learn_step % self.policy_update_delay == 0:
-            argmax_a_q_s = self.online_policy_model(states)
-            max_a_q_s = self.online_value_model_1(states, argmax_a_q_s)
-            policy_loss = -max_a_q_s.mean()
-
-            self.policy_optimizer.zero_grad()
-            policy_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.online_policy_model.parameters(),
-                                           self.policy_max_grad_norm)
-            self.policy_optimizer.step()
-
-            if self.learn_step % self.update_target_every_steps == 0:
-                self.update_networks()
 
     def interaction_step(self, state, env):
         min_samples = self.replay_buffer.batch_size * self.n_warmup_batches
@@ -898,104 +988,90 @@ class TD3():
                                                       state, 
                                                       len(self.replay_buffer) < min_samples)
         new_state, reward, is_terminal, is_truncated, info = env.step(action)
+        #is_truncated = 'TimeLimit.truncated' in info and info['TimeLimit.truncated']
         is_failure = is_terminal and not is_truncated
         experience = (state, action, reward, new_state, float(is_failure))
         self.replay_buffer.store(experience)
         self.episode_reward[-1] += reward
         self.episode_timestep[-1] += 1
         self.episode_exploration[-1] += self.training_strategy.ratio_noise_injected
+        #print("self.episode_exploration[-1]: ", self.episode_exploration[-1])
         return new_state, is_terminal
     
     def update_networks(self, tau=None):
         tau = self.tau if tau is None else tau
-
-        for target, online in zip(self.target_value_model_1.parameters(),
-                                  self.online_value_model_1.parameters()):
+        for target, online in zip(self.target_value_model.parameters(), 
+                                  self.online_value_model.parameters()):
             target_ratio = (1.0 - tau) * target.data
             online_ratio = tau * online.data
             mixed_weights = target_ratio + online_ratio
             target.data.copy_(mixed_weights)
 
-        for target, online in zip(self.target_value_model_2.parameters(),
-                                  self.online_value_model_2.parameters()):
-            target_ratio = (1.0 - tau) * target.data
-            online_ratio = tau * online.data
-            mixed_weights = target_ratio + online_ratio
-            target.data.copy_(mixed_weights)
-
-        for target, online in zip(self.target_policy_model.parameters(),
+        for target, online in zip(self.target_policy_model.parameters(), 
                                   self.online_policy_model.parameters()):
             target_ratio = (1.0 - tau) * target.data
             online_ratio = tau * online.data
             mixed_weights = target_ratio + online_ratio
             target.data.copy_(mixed_weights)
 
+    #def train(self, make_env_fn, make_env_kargs, seed, gamma, 
     def train(self, env, seed, gamma,
               max_minutes, max_episodes, goal_mean_100_reward):
         training_start, last_debug_time = time.time(), float('-inf')
 
+        # Safe and persistent checkpoint directory in home
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.checkpoint_dir = os.path.expanduser(f"~/td3_checkpoints/run_{timestamp}")
+        self.checkpoint_dir = os.path.expanduser(f"~/ddpg_checkpoints/run_{timestamp}")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
     
         print(f"Running on: {os.uname().nodename}")
         print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
-
+        # self.checkpoint_dir = tempfile.mkdtemp()
+        #print(self.checkpoint_dir)
+        #self.make_env_fn = make_env_fn
+        #self.make_env_kargs = make_env_kargs
         self.seed = seed
         self.gamma = gamma
         
-        torch.manual_seed(self.seed)
-        np.random.seed(self.seed)
-        random.seed(self.seed)
+        #env = self.make_env_fn(**self.make_env_kargs, seed=self.seed)
+        torch.manual_seed(self.seed) ; np.random.seed(self.seed) ; random.seed(self.seed)
     
         nS, nA = env.observation_space.shape[0], env.action_space.shape[0]
         action_bounds = env.action_space.low, env.action_space.high
-
-        self.action_low_t = torch.tensor(action_bounds[0], dtype=torch.float32)
-        self.action_high_t = torch.tensor(action_bounds[1], dtype=torch.float32)
-
-        # put action bounds on same device as actor later
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.action_low_t = self.action_low_t.to(device)
-        self.action_high_t = self.action_high_t.to(device)
-
         self.episode_timestep = []
         self.episode_reward = []
         self.episode_seconds = []
         self.evaluation_scores = []        
         self.episode_exploration = []
+
+        price_mean = env.price_mean
+        price_std = env.price_std
         
-        # --- TD3: twin critics ---
-        self.target_value_model_1 = self.value_model_fn(nS, nA)
-        self.online_value_model_1 = self.value_model_fn(nS, nA)
+        self.target_value_model = self.value_model_fn(nS, nA)
+        self.online_value_model = self.value_model_fn(nS, nA)
+        self.target_policy_model = self.policy_model_fn(nS, action_bounds, price_mean, price_std)
+        self.online_policy_model = self.policy_model_fn(nS, action_bounds, price_mean, price_std)
 
-        self.target_value_model_2 = self.value_model_fn(nS, nA)
-        self.online_value_model_2 = self.value_model_fn(nS, nA)
-
-        self.target_policy_model = self.policy_model_fn(nS, action_bounds)
-        self.online_policy_model = self.policy_model_fn(nS, action_bounds)
-
-        # move bounds to actor device in case cpu/cuda differs
-        self.action_low_t = self.action_low_t.to(self.online_policy_model.device)
-        self.action_high_t = self.action_high_t.to(self.online_policy_model.device)
+        # # Load pretrained actor weights into both online and target policy models
+        # pretrained_path = "pretrained_policy_285.pth"  # path to your pretrained file
+        # self.online_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.online_policy_model.device))
+        # self.target_policy_model.load_state_dict(torch.load(pretrained_path, map_location=self.target_policy_model.device))
 
         self.update_networks(tau=1.0)
-
-        self.value_optimizer_1 = self.value_optimizer_fn(self.online_value_model_1,
-                                                         self.value_optimizer_lr)
-        self.value_optimizer_2 = self.value_optimizer_fn(self.online_value_model_2,
-                                                         self.value_optimizer_lr)
-        self.policy_optimizer = self.policy_optimizer_fn(self.online_policy_model,
+        self.value_optimizer = self.value_optimizer_fn(self.online_value_model, 
+                                                       self.value_optimizer_lr)        
+        self.policy_optimizer = self.policy_optimizer_fn(self.online_policy_model, 
                                                          self.policy_optimizer_lr)
 
         self.replay_buffer = self.replay_buffer_fn()
-        self.training_strategy = self.training_strategy_fn(action_bounds)
-        self.evaluation_strategy = self.evaluation_strategy_fn(action_bounds)
+        self.training_strategy = training_strategy_fn(action_bounds)
+        # self.training_strategy = self.training_strategy_fn() # No action bounds here
+        self.evaluation_strategy = evaluation_strategy_fn(action_bounds)
+        # self.evaluation_strategy = self.evaluation_strategy_fn() # No action bounds here
                     
         result = np.empty((max_episodes, 5))
         result[:] = np.nan
         training_time = 0
-
         for episode in range(1, max_episodes + 1):
             episode_start = time.time()
             
@@ -1004,24 +1080,26 @@ class TD3():
             self.episode_reward.append(0.0)
             self.episode_timestep.append(0.0)
             self.episode_exploration.append(0.0)
-
             for step in count():
                 state, is_terminal = self.interaction_step(state, env)
 
                 min_samples = self.replay_buffer.batch_size * self.n_warmup_batches
                 if len(self.replay_buffer) > min_samples:
+                    # experiences = self.replay_buffer.sample()
+                    # experiences = self.online_value_model.load(experiences)
+                    # self.optimize_model(experiences)
                     idxs_weights_samples = self.replay_buffer.sample()
-                    samples = self.online_value_model_1.load(idxs_weights_samples[2])
+                    samples = self.online_value_model.load(idxs_weights_samples[2])
                     self.optimize_model((idxs_weights_samples[0], idxs_weights_samples[1], samples))
+
+                if np.sum(self.episode_timestep) % self.update_target_every_steps == 0:
+                    self.update_networks()
 
                 if is_terminal:
                     gc.collect()
                     break
-
-            # episode-level decay for exploration
-            if hasattr(self.training_strategy, "decay_step"):
-                self.training_strategy.decay_step()
             
+            # stats
             episode_elapsed = time.time() - episode_start
             self.episode_seconds.append(episode_elapsed)
             training_time += episode_elapsed
@@ -1038,7 +1116,7 @@ class TD3():
             mean_100_eval_score = np.mean(self.evaluation_scores[-100:])
             std_100_eval_score = np.std(self.evaluation_scores[-100:])
             lst_100_exp_rat = np.array(
-                self.episode_exploration[-100:]) / np.array(self.episode_timestep[-100:])
+                self.episode_exploration[-100:])/np.array(self.episode_timestep[-100:])
             mean_100_exp_rat = np.mean(lst_100_exp_rat)
             std_100_exp_rat = np.std(lst_100_exp_rat)
             
@@ -1064,11 +1142,9 @@ class TD3():
                 mean_100_reward, std_100_reward, mean_100_exp_rat, std_100_exp_rat,
                 mean_100_eval_score, std_100_eval_score)
             print(debug_message, end='\r', flush=True)
-
             if reached_debug_time or training_is_over:
                 print(ERASE_LINE + debug_message, flush=True)
                 last_debug_time = time.time()
-
             if training_is_over:
                 if reached_max_minutes: print(u'--> reached_max_minutes \u2715')
                 if reached_max_episodes: print(u'--> reached_max_episodes \u2715')
@@ -1081,8 +1157,7 @@ class TD3():
         print('Final evaluation score {:.2f}\u00B1{:.2f} in {:.2f}s training time,'
               ' {:.2f}s wall-clock time.\n'.format(
                   final_eval_score, score_std, training_time, wallclock_time))
-        env.close()
-        del env
+        env.close() ; del env
         self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
     
@@ -1096,8 +1171,7 @@ class TD3():
                 a = self.evaluation_strategy.select_action(eval_policy_model, s)
                 s, r, d, _, _ = eval_env.step(a)
                 rs[-1] += r
-                if d:
-                    break
+                if d: break
         return np.mean(rs), np.std(rs)
 
     def get_cleaned_checkpoints(self, n_checkpoints=4):
@@ -1107,9 +1181,10 @@ class TD3():
             self.checkpoint_paths = {}
 
         paths = glob.glob(os.path.join(self.checkpoint_dir, '*.tar'))
-        paths_dic = {int(path.split('.')[-2]): path for path in paths}
+        paths_dic = {int(path.split('.')[-2]):path for path in paths}
         last_ep = max(paths_dic.keys())
-        checkpoint_idxs = np.linspace(1, last_ep + 1, n_checkpoints, endpoint=True, dtype=int) - 1
+        # checkpoint_idxs = np.geomspace(1, last_ep+1, n_checkpoints, endpoint=True, dtype=np.int)-1
+        checkpoint_idxs = np.linspace(1, last_ep+1, n_checkpoints, endpoint=True, dtype=int)-1
 
         for idx, path in paths_dic.items():
             if idx in checkpoint_idxs:
@@ -1120,12 +1195,12 @@ class TD3():
         return self.checkpoint_paths
 
     def save_checkpoint(self, episode_idx, model):
-        torch.save(model.state_dict(),
+        torch.save(model.state_dict(), 
                    os.path.join(self.checkpoint_dir, 'model.{}.tar'.format(episode_idx)))
-        
+
 class NormalNoiseStrategy:
     """
-    Adds exponentially decaying Gaussian noise to actions in a td3 agent for exploration.
+    Adds exponentially decaying Gaussian noise to actions in a DDPG agent for exploration.
     """
     def __init__(self, bounds, exploration_noise_ratio, final_noise_ratio,
                  max_episode, noise_free_last):
@@ -1227,7 +1302,7 @@ class NormalNoiseStrategy:
 #     256, 312, 478, 512, 634, 758, 890, 912, 1024, 2048
 # )
 SEEDS = [78]
-td3_results = []
+ddpg_results = []
 best_agent, best_eval_score = None, float('-inf')
 for seed in SEEDS:
     environment_settings = {
@@ -1239,7 +1314,14 @@ for seed in SEEDS:
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
-    policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
+    # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(512, 512, 256, 128)) 
+    policy_model_fn = lambda nS, bounds, price_mean, price_std: FCDPAutoregressive(
+        nS,
+        bounds,
+        price_mean,
+        price_std,
+        hidden_dims=(512, 512, 256, 128),
+    )
     policy_max_grad_norm = 1#float('inf')
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.00003#0.0003#0.0005#0.003
@@ -1266,28 +1348,27 @@ for seed in SEEDS:
     env_name, gamma, max_minutes, \
     max_episodes, goal_mean_100_reward = environment_settings.values()
 
-    agent = TD3(replay_buffer_fn,
-                policy_model_fn, 
-                policy_max_grad_norm, 
-                policy_optimizer_fn, 
-                policy_optimizer_lr,
-                value_model_fn, 
-                value_max_grad_norm, 
-                value_optimizer_fn, 
-                value_optimizer_lr, 
-                training_strategy_fn,
-                evaluation_strategy_fn,
-                n_warmup_batches,
-                update_target_every_steps,
-                tau,
-                policy_update_delay=1,#2,
-                target_policy_noise=0.03,#0.2,
-                target_policy_noise_clip=0.08 #0.5)
+    agent = DDPG(replay_buffer_fn,
+                 policy_model_fn, 
+                 policy_max_grad_norm, 
+                 policy_optimizer_fn, 
+                 policy_optimizer_lr,
+                 value_model_fn, 
+                 value_max_grad_norm, 
+                 value_optimizer_fn, 
+                 value_optimizer_lr, 
+                 training_strategy_fn,
+                 evaluation_strategy_fn,
+                 n_warmup_batches,
+                 update_target_every_steps,
+                 tau)
 
     #make_env_fn, make_env_kargs = get_make_env_fn(env_name=env_name)
     # Example usage
     # --- Use these parameters ---
     params = {
+        "price_mean": 17.49715440346992,
+        "price_std": 5.874272071888386,
         'n_months': 12,
         'V_min': 0,
         'V_max': 1,
@@ -1397,46 +1478,45 @@ for seed in SEEDS:
     env = TTFGasStorageEnv(params)
     #result, final_eval_score, training_time, wallclock_time = agent.train(make_env_fn, make_env_kargs, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
     result, final_eval_score, training_time, wallclock_time = agent.train(env, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
-    td3_results.append(result)
+    ddpg_results.append(result)
     if final_eval_score > best_eval_score:
         best_eval_score = final_eval_score
         best_agent = agent
-td3_results = np.array(td3_results)
+ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
-torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_td3_v2.pth")
-torch.save(best_agent.online_value_model_1.state_dict(), "online_value_model_1_autoregressive_td3_v2.pth")
-torch.save(best_agent.online_value_model_2.state_dict(), "online_value_model_2_autoregressive_td3_v2.pth")
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3_v4.pth")
+torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3_v4.pth")
 
-td3_max_t, td3_max_r, td3_max_s, \
-td3_max_sec, td3_max_rt = np.max(td3_results, axis=0).T
-td3_min_t, td3_min_r, td3_min_s, \
-td3_min_sec, td3_min_rt = np.min(td3_results, axis=0).T
-td3_mean_t, td3_mean_r, td3_mean_s, \
-td3_mean_sec, td3_mean_rt = np.mean(td3_results, axis=0).T
-td3_x = np.arange(len(td3_mean_s))
+ddpg_max_t, ddpg_max_r, ddpg_max_s, \
+ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
+ddpg_min_t, ddpg_min_r, ddpg_min_s, \
+ddpg_min_sec, ddpg_min_rt = np.min(ddpg_results, axis=0).T
+ddpg_mean_t, ddpg_mean_r, ddpg_mean_s, \
+ddpg_mean_sec, ddpg_mean_rt = np.mean(ddpg_results, axis=0).T
+ddpg_x = np.arange(len(ddpg_mean_s))
 
 fig, axs = plt.subplots(2, 1, figsize=(15,10), sharey=False, sharex=True)
 
-# td3
-axs[0].plot(td3_max_r, 'r', linewidth=1)
-axs[0].plot(td3_min_r, 'r', linewidth=1)
-axs[0].plot(td3_mean_r, 'r:', label='Profit and Loss', linewidth=2)
+# DDPG
+axs[0].plot(ddpg_max_r, 'r', linewidth=1)
+axs[0].plot(ddpg_min_r, 'r', linewidth=1)
+axs[0].plot(ddpg_mean_r, 'r:', label='Profit and Loss', linewidth=2)
 axs[0].fill_between(
-    td3_x, td3_min_r, td3_max_r, facecolor='r', alpha=0.3)
+    ddpg_x, ddpg_min_r, ddpg_max_r, facecolor='r', alpha=0.3)
 
-axs[1].plot(td3_max_s, 'r', linewidth=1)
-axs[1].plot(td3_min_s, 'r', linewidth=1)
-axs[1].plot(td3_mean_s, 'r:', label='Profit and Loss', linewidth=2)
+axs[1].plot(ddpg_max_s, 'r', linewidth=1)
+axs[1].plot(ddpg_min_s, 'r', linewidth=1)
+axs[1].plot(ddpg_mean_s, 'r:', label='Profit and Loss', linewidth=2)
 axs[1].fill_between(
-     td3_x, td3_min_s, td3_max_s, facecolor='r', alpha=0.3)
+     ddpg_x, ddpg_min_s, ddpg_max_s, facecolor='r', alpha=0.3)
 
 # ALL
 axs[0].set_title('Moving Average Return (Training)')
 axs[1].set_title('Moving Average Return (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
-plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_td3_v2.png")
+plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_modified_3_v4.png")
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
     futures_list = np.full((N_simulations,12), 0.0, dtype=np.float32)  # Initialize all values as 0.0
@@ -1793,4 +1873,4 @@ plt.ylabel("Realized Reservoir Value")
 plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
-plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_td3_v2.png")
+plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_modified_3_v4.png")
