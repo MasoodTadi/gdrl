@@ -1353,7 +1353,9 @@ ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
 torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3.pth")
 torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3.pth")
 
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
 ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
