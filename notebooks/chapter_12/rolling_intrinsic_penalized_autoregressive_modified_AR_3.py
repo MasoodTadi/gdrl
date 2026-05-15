@@ -1352,11 +1352,6 @@ for seed in SEEDS:
 ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
-torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3.pth")
-torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3.pth")
-# torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3.pth")
-# torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3.pth")
-
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
 ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
 ddpg_min_t, ddpg_min_r, ddpg_min_s, \
@@ -1680,7 +1675,7 @@ for j in range(N_simulations):
             state = np.concatenate((np.array([i]),prices,np.array([V_t])),dtype=np.float32)
             # env.month = state[0]
             # env.V_t = state[-1]
-            X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(agent.online_policy_model, state)
+            X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
             # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
             X_tau[j, i, :] = np.round(X_tau[j, i, :],2)
             # X_tau[j, i, :] = trained_network(state).detach().cpu().numpy()
@@ -1743,3 +1738,8 @@ plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
 plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_modified_3.png")
+
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3.pth")
