@@ -1,4 +1,4 @@
-# In this version a_0 will be fixed and nor trained.
+# In this version a_0 will be fixed and not trained.
 import warnings ; warnings.filterwarnings('ignore')
 import os
 os.environ['CUDA_DEVICE_ORDER']='PCI_BUS_ID'
@@ -1367,11 +1367,6 @@ for seed in SEEDS:
 ddpg_results = np.array(ddpg_results)
 _ = BEEP()
 
-torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3_v5.pth")
-torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3_v5.pth")
-torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3_v5.pth")
-torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3_v5.pth")
-
 ddpg_max_t, ddpg_max_r, ddpg_max_s, \
 ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
 ddpg_min_t, ddpg_min_r, ddpg_min_s, \
@@ -1753,3 +1748,8 @@ plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
 plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_modified_3_v5.png")
+
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3_v5.pth")
+torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3_v5.pth")
+torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3_v5.pth")
+torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3_v5.pth")
