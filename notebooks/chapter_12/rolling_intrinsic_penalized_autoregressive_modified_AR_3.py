@@ -899,9 +899,9 @@ class DDPG():
         training_start, last_debug_time = time.time(), float('-inf')
 
         # Safe and persistent checkpoint directory in home
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.checkpoint_dir = os.path.expanduser(f"~/ddpg_checkpoints/run_{timestamp}")
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        # self.checkpoint_dir = os.path.expanduser(f"~/ddpg_checkpoints/run_{timestamp}")
+        # os.makedirs(self.checkpoint_dir, exist_ok=True)
     
         print(f"Running on: {os.uname().nodename}")
         print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
@@ -980,7 +980,7 @@ class DDPG():
             self.episode_seconds.append(episode_elapsed)
             training_time += episode_elapsed
             evaluation_score, _ = self.evaluate(self.online_policy_model, env)
-            self.save_checkpoint(episode-1, self.online_policy_model)
+            # self.save_checkpoint(episode-1, self.online_policy_model)
 
             total_step = int(np.sum(self.episode_timestep))
             self.evaluation_scores.append(evaluation_score)
@@ -1034,7 +1034,7 @@ class DDPG():
               ' {:.2f}s wall-clock time.\n'.format(
                   final_eval_score, score_std, training_time, wallclock_time))
         env.close() ; del env
-        self.get_cleaned_checkpoints()
+        # self.get_cleaned_checkpoints()
         return result, final_eval_score, training_time, wallclock_time
     
     def evaluate(self, eval_policy_model, eval_env, n_episodes=1):
@@ -1185,7 +1185,7 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,
         'max_minutes': np.inf,#20,
-        'max_episodes': 20_000, #15_000,
+        'max_episodes': 100_000, #20_000, #15_000,
         'goal_mean_100_reward': np.inf#-15#-150
     }
 
@@ -1209,8 +1209,8 @@ for seed in SEEDS:
     # evaluation_strategy_fn = lambda: GreedyStrategy()
 
     # replay_buffer_fn = lambda: ReplayBuffer(max_size=100_000, batch_size=32) #max_size=100000
-    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=200_000, batch_size=256)
-    n_warmup_batches = 200#10#1#200#5
+    replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=1_000_000, batch_size=512)#(max_samples=200_000, batch_size=256)
+    n_warmup_batches = 1800#200#10#1#200#5
     update_target_every_steps = 1
     tau = 0.005#0.005
     
