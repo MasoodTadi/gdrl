@@ -1753,3 +1753,8 @@ torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_aut
 torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3_v5.pth")
 torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3_v5.pth")
 torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3_v5.pth")
+
+import dill
+
+with open("replay_buffer.pkl", "wb") as f:
+    dill.dump(best_agent.replay_buffer, f)
