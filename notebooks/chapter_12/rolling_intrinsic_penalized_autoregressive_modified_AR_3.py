@@ -904,7 +904,7 @@ class DDPG():
         # os.makedirs(self.checkpoint_dir, exist_ok=True)
     
         print(f"Running on: {os.uname().nodename}")
-        print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
+        # print(f"[INFO] Checkpoints will be saved to: {self.checkpoint_dir}")
         # self.checkpoint_dir = tempfile.mkdtemp()
         #print(self.checkpoint_dir)
         #self.make_env_fn = make_env_fn
