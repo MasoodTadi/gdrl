@@ -895,7 +895,7 @@ class DDPG():
 
     #def train(self, make_env_fn, make_env_kargs, seed, gamma, 
     def train(self, env, seed, gamma,
-              max_minutes, max_episodes, goal_mean_100_reward):
+              max_minutes, max_episodes, goal_mean_500_reward):
         training_start, last_debug_time = time.time(), float('-inf')
 
         # Safe and persistent checkpoint directory in home
@@ -985,38 +985,38 @@ class DDPG():
             total_step = int(np.sum(self.episode_timestep))
             self.evaluation_scores.append(evaluation_score)
             
-            mean_10_reward = np.mean(self.episode_reward[-10:])
-            std_10_reward = np.std(self.episode_reward[-10:])
             mean_100_reward = np.mean(self.episode_reward[-100:])
             std_100_reward = np.std(self.episode_reward[-100:])
-            mean_100_eval_score = np.mean(self.evaluation_scores[-100:])
-            std_100_eval_score = np.std(self.evaluation_scores[-100:])
-            lst_100_exp_rat = np.array(
-                self.episode_exploration[-100:])/np.array(self.episode_timestep[-100:])
-            mean_100_exp_rat = np.mean(lst_100_exp_rat)
-            std_100_exp_rat = np.std(lst_100_exp_rat)
+            mean_500_reward = np.mean(self.episode_reward[-500:])
+            std_500_reward = np.std(self.episode_reward[-500:])
+            mean_500_eval_score = np.mean(self.evaluation_scores[-500:])
+            std_500_eval_score = np.std(self.evaluation_scores[-500:])
+            lst_500_exp_rat = np.array(
+                self.episode_exploration[-500:])/np.array(self.episode_timestep[-500:])
+            mean_500_exp_rat = np.mean(lst_500_exp_rat)
+            std_500_exp_rat = np.std(lst_500_exp_rat)
             
             wallclock_elapsed = time.time() - training_start
-            result[episode-1] = total_step, mean_100_reward, \
-                mean_100_eval_score, training_time, wallclock_elapsed
+            result[episode-1] = total_step, mean_500_reward, \
+                mean_500_eval_score, training_time, wallclock_elapsed
             
             reached_debug_time = time.time() - last_debug_time >= LEAVE_PRINT_EVERY_N_SECS
             reached_max_minutes = wallclock_elapsed >= max_minutes * 60
             reached_max_episodes = episode >= max_episodes
-            reached_goal_mean_reward = mean_100_eval_score >= goal_mean_100_reward
+            reached_goal_mean_reward = mean_500_eval_score >= goal_mean_500_reward
             training_is_over = reached_max_minutes or \
                                reached_max_episodes or \
                                reached_goal_mean_reward
             elapsed_str = time.strftime("%H:%M:%S", time.gmtime(time.time() - training_start))
             debug_message = 'el {}, ep {:04}, ts {:07}, '
-            debug_message += 'ar 10 {:05.1f}\u00B1{:05.1f}, '
-            debug_message += '100 {:05.1f}\u00B1{:05.1f}, '
-            debug_message += 'ex 100 {:02.1f}\u00B1{:02.1f}, '
+            debug_message += 'ar 100 {:05.1f}\u00B1{:05.1f}, '
+            debug_message += '500 {:05.1f}\u00B1{:05.1f}, '
+            debug_message += 'ex 500 {:02.1f}\u00B1{:02.1f}, '
             debug_message += 'ev {:05.1f}\u00B1{:05.1f}'
             debug_message = debug_message.format(
-                elapsed_str, episode-1, total_step, mean_10_reward, std_10_reward, 
-                mean_100_reward, std_100_reward, mean_100_exp_rat, std_100_exp_rat,
-                mean_100_eval_score, std_100_eval_score)
+                elapsed_str, episode-1, total_step, mean_100_reward, std_100_reward, 
+                mean_500_reward, std_500_reward, mean_500_exp_rat, std_500_exp_rat,
+                mean_500_eval_score, std_500_eval_score)
             print(debug_message, end='\r', flush=True)
             if reached_debug_time or training_is_over:
                 print(ERASE_LINE + debug_message, flush=True)
@@ -1027,7 +1027,7 @@ class DDPG():
                 if reached_goal_mean_reward: print(u'--> reached_goal_mean_reward \u2713')
                 break
                 
-        final_eval_score, score_std = self.evaluate(self.online_policy_model, env, n_episodes=100)
+        final_eval_score, score_std = self.evaluate(self.online_policy_model, env, n_episodes=500)
         wallclock_time = time.time() - training_start
         print('Training complete.')
         print('Final evaluation score {:.2f}\u00B1{:.2f} in {:.2f}s training time,'
@@ -1185,8 +1185,8 @@ for seed in SEEDS:
         'env_name': 'TTFGasStorageEnv',
         'gamma': 0.99,
         'max_minutes': np.inf,#20,
-        'max_episodes': 100_000, #20_000, #15_000,
-        'goal_mean_100_reward': np.inf#-15#-150
+        'max_episodes': 150_000, #20_000, #15_000,
+        'goal_mean_500_reward': 4#np.inf#-15#-150
     }
 
     # policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256,256)) 
@@ -1215,7 +1215,7 @@ for seed in SEEDS:
     tau = 0.005#0.005
     
     env_name, gamma, max_minutes, \
-    max_episodes, goal_mean_100_reward = environment_settings.values()
+    max_episodes, goal_mean_500_reward = environment_settings.values()
 
     agent = DDPG(replay_buffer_fn,
                  policy_model_fn, 
@@ -1343,8 +1343,8 @@ for seed in SEEDS:
     #     'monthly_seasonal_factors': np.array([0,0,0,0,0,0,0,0,0,0,0,0])
     # }
     env = TTFGasStorageEnv(params)
-    #result, final_eval_score, training_time, wallclock_time = agent.train(make_env_fn, make_env_kargs, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
-    result, final_eval_score, training_time, wallclock_time = agent.train(env, seed, gamma, max_minutes, max_episodes, goal_mean_100_reward)
+    #result, final_eval_score, training_time, wallclock_time = agent.train(make_env_fn, make_env_kargs, seed, gamma, max_minutes, max_episodes, goal_mean_500_reward)
+    result, final_eval_score, training_time, wallclock_time = agent.train(env, seed, gamma, max_minutes, max_episodes, goal_mean_500_reward)
     ddpg_results.append(result)
     if final_eval_score > best_eval_score:
         best_eval_score = final_eval_score
@@ -1429,7 +1429,7 @@ def compute_futures_curve_scalar(day, S_t, r_t, delta_t):
     return futures
 
 # Parameters for the Yan (2002) model
-N_simulations = 100 # Number of simulations
+N_simulations = 500 # Number of simulations
 T = 360  
 dt = 1/(T+1)
 # Model Parameters (Assumed)
@@ -1566,7 +1566,7 @@ for sim in range(N_simulations):
         F_t[sim, day, :] = compute_futures_curve_scalar(day, S, r, delta)
 
 # Rolling Intrinsic valuation
-N_simulations = 100  # Number of simulations
+N_simulations = 500  # Number of simulations
 n = 12  # Number of months
 T = 360  
 N_maturities = 12
@@ -1640,7 +1640,7 @@ V_IE_Rolling = np.mean(CF_IE_Rolling)
 print(f"Estimated Rolling Intrinsic + Extrinsic Value: {V_IE_Rolling:.4f}")
 
 # DRL Valuation
-N_simulations = 100 # Number of simulations
+N_simulations = 500 # Number of simulations
 T = 360  
 N_maturities = 12
 decision_times = np.arange(0, T+1, 30)  # Decision points tau = [0, 30, 60, ..., 360]
