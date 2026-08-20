@@ -1550,7 +1550,7 @@ axs[0].set_title('Moving Average Return (Training)')
 axs[1].set_title('Moving Average Return (Evaluation)')
 plt.xlabel('Episodes')
 axs[0].legend(loc='upper left')
-plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_modified_3_physical.png")
+plt.savefig("Moving_Average_Reward_Autoregressive_Penalized_modified_3.png")
 
 
 def compute_futures_curve(day, S_t, r_t, delta_t):
@@ -1631,6 +1631,11 @@ initial_spot_price = np.exp(2.9479)
 initial_r = 0.15958620269619
 initial_delta = 0.106417288572204
 initial_v = 0.0249967313173077
+
+# Keep the post-training Monte Carlo paths under the same physical measure used
+# by the training environment.  compute_futures_curve* remains risk-neutral.
+phi = params.get('phi', 0.0)
+delta_bar = theta_delta / kappa_delta
 
 ksi_r = np.sqrt(kappa_r ** 2 + 2 * sigma_r ** 2)
 seasonal_factors = np.array([-0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
@@ -1725,7 +1730,9 @@ for sim in range(N_simulations):
         J = np.exp(ln_1_plus_J) - 1
         J_v = rng.exponential(scale=theta)
 
-        dS = (r - delta - lam * mu_j) * S * dt + sigma_s * S * dW_1 + np.sqrt(max(v, 0)) * S * dW_2 + J * S * dq
+        premium = phi * (delta - delta_bar)
+        dS = (r - delta - lam * mu_j + premium) * S * dt + sigma_s * S * dW_1 + np.sqrt(
+            max(v, 0)) * S * dW_2 + J * S * dq
         dr = (theta_r - kappa_r * r) * dt + sigma_r * np.sqrt(max(r, 0)) * dW_r
         ddelta = (theta_delta - kappa_delta * delta) * dt + sigma_delta * dW_delta
         dv = (theta_v - kappa_v * v) * dt + sigma_v * np.sqrt(max(v, 0)) * dW_v + J_v * dq
@@ -1834,6 +1841,26 @@ V_I = np.zeros((N_simulations, len(decision_times)))  # Intrinsic value per matu
 CF_IE = np.zeros(N_simulations)  # Total cash-flow per simulation
 X_tau = np.zeros((N_simulations, len(decision_times), N_maturities))
 
+
+def build_drl_valuation_state(month_idx, prices, prev_prices, volume):
+    """Build exactly the same observation layout that was used in training."""
+    # _build_state() depends only on these four environment attributes (plus constants),
+    # so reusing it avoids duplicating the 14/33-dimensional feature engineering here.
+    env.month = int(month_idx)
+    env.F_t = np.asarray(prices, dtype=np.float64)
+    env.F_prev = np.asarray(prev_prices, dtype=np.float64)
+    env.V_t = float(volume)
+    state = env._build_state()
+
+    expected = best_agent.online_policy_model.input_layer.in_features
+    if state.shape != (expected,):
+        raise RuntimeError(
+            f"DRL valuation state has shape {state.shape}, but policy expects "
+            f"{expected} features. Check env.N_STATE / params['n_state']."
+        )
+    return state
+
+
 # Loop over all simulations
 for j in range(N_simulations):
     V_t = V_0
@@ -1850,9 +1877,8 @@ for j in range(N_simulations):
         if i == 0:
             # Compute initial intrinsic value V_I,0 = -F_0 * X_0 for all maturities
             prices = F_t[j, tau, :]
-            state = np.concatenate((np.array([i]), prices, np.array([V_t])), dtype=np.float32)
-            # env.month = state[0]
-            # env.V_t = state[-1]
+            # At month 0 there is no previous curve, matching env.reset(): F_prev = F_t.
+            state = build_drl_valuation_state(i, prices, prices, V_t)
             X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
             # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
             X_tau[j, i, :] = np.round(X_tau[j, i, :], 2)
@@ -1866,9 +1892,8 @@ for j in range(N_simulations):
 
         # Update intrinsic value for each maturity
         prices = F_t[j, tau, :]
-        state = np.concatenate((np.array([i]), prices, np.array([V_t])), dtype=np.float32)
-        # env.month = state[0]
-        # env.V_t = state[-1]
+        prev_prices = F_t[j, prev_tau, :]
+        state = build_drl_valuation_state(i, prices, prev_prices, V_t)
         X_tau[j, i, :] = best_agent.evaluation_strategy.select_action(best_agent.online_policy_model, state)
         # X_tau[j, i, -1] = np.clip(-X_tau[j, i, :-1].cumsum()[-1]-V_t,-W_max, I_max)
         X_tau[j, i, :] = np.round(X_tau[j, i, :], 2)
@@ -1915,9 +1940,9 @@ plt.ylabel("Realized Reservoir Value")
 plt.title("Reinforcement Learning Value Calculation")
 plt.legend()
 plt.grid(True)
-plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_modified_3_physical.png")
+plt.savefig("Reinforcement_Learning_Value_Autoregressive_Penalized_modified_3.png")
 
-torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3_physical.pth")
-torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3_physical.pth")
-torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3_physical.pth")
-torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3_physical.pth")
+torch.save(best_agent.online_policy_model.state_dict(), "online_policy_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.target_policy_model.state_dict(), "target_policy_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.online_value_model.state_dict(), "online_value_model_autoregressive_penalized_modified_3.pth")
+torch.save(best_agent.target_value_model.state_dict(), "target_value_model_autoregressive_penalized_modified_3.pth")
