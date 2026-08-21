@@ -813,6 +813,19 @@ class PrioritizedReplayBuffer():
         self._update_beta()
         n = self.n_entries
 
+        k = min(batch_size, n)
+        # CHANGE 7(d): alpha == 0 makes every priority equal, so the sampling
+        # distribution is exactly uniform and every importance weight is exactly 1.
+        # Taking that branch explicitly turns an O(n) pass per gradient step (build
+        # probs over all n entries, draw n Gumbels, argpartition) into an O(batch)
+        # draw.  At n = 360,000 that is ~19 ms per step, i.e. ~57 s per 3,000-step
+        # round.  Mathematically identical to the general branch at alpha = 0.
+        if self.alpha == 0.0:
+            idxs = self._rng.integers(0, n, size=k)
+            return (idxs.reshape(-1, 1), np.ones((k, 1)),
+                    [self._s[idxs], self._a[idxs], self._r[idxs],
+                     self._s2[idxs], self._d[idxs]])
+
         if self.rank_based:
             priorities = 1 / (np.arange(n) + 1)
         else:  # proportional
@@ -823,7 +836,6 @@ class PrioritizedReplayBuffer():
         weights = (n * probs) ** -self.beta
         normalized_weights = weights / weights.max()
         # CHANGE 7(c): Gumbel top-k == sampling without replacement proportional to probs
-        k = min(batch_size, n)
         g = self._rng.gumbel(size=n)
         idxs = np.argpartition(np.log(probs) + g, -k)[-k:]
 
@@ -1109,8 +1121,24 @@ class DDPG():
             std_500_exp_rat = np.std(lst_500_exp_rat)
 
             wallclock_elapsed = time.time() - training_start
-            result[episode - 1] = total_step, mean_500_reward, \
-                mean_500_eval_score, training_time, wallclock_elapsed
+            # CHANGE 13: fill the whole round's block, not just its last row, so the
+            # moving-average plot is dense in episodes rather than one point per round.
+            # Column 1 is a genuine 500-episode rolling mean of the training P&L,
+            # computed from the cumulative sum over the whole history.  The path-episodes
+            # inside a round run in parallel, so their ordering within the round is
+            # arbitrary; the rolling mean is therefore a smoothed estimate of the round's
+            # mean rather than a time series inside the round.  Column 2 (evaluation) has
+            # one measurement per round by construction and is held constant across it.
+            lo = episode - n_paths
+            _er = np.asarray(self.episode_reward, dtype=np.float64)
+            _cs = np.concatenate(([0.0], np.cumsum(_er)))
+            _i = np.arange(lo, episode) + 1
+            _s = np.maximum(_i - 500, 0)
+            result[lo:episode, 0] = total_step
+            result[lo:episode, 1] = (_cs[_i] - _cs[_s]) / (_i - _s)
+            result[lo:episode, 2] = mean_500_eval_score
+            result[lo:episode, 3] = training_time
+            result[lo:episode, 4] = wallclock_elapsed
 
             reached_debug_time = time.time() - last_debug_time >= LEAVE_PRINT_EVERY_N_SECS
             reached_max_minutes = wallclock_elapsed >= max_minutes * 60
@@ -1167,8 +1195,12 @@ class DDPG():
             tot = np.zeros(eval_env.n_paths)
             for _ in count():
                 a = self.evaluation_strategy.select_action(eval_policy_model, s)
-                s, r, d, _, _ = eval_env.step(a)
-                tot = tot + np.asarray(r)
+                s, r, d, _, info = eval_env.step(a)
+                # CHANGE 13: subtract the RIV shaping term.  It is identically 0 when
+                # penalty_lambda_riv = 0, so this changes nothing in the default setting;
+                # with the penalty ACTIVE it guarantees that every reported P&L is the
+                # unshaped equation (26) and not the shaped training signal.
+                tot = tot + np.asarray(r) - np.asarray(info['riv_penalty'])
                 if d:
                     break
             rs.append(tot)
@@ -1185,7 +1217,8 @@ class DDPG():
                         diff=diff.mean(), diff_se=diff.std(ddof=1) / np.sqrt(len(diff)),
                         win=float((diff > 0).mean()), n=len(rs),
                         ddpg_cvar5=float(rs[rs <= np.quantile(rs, .05)].mean()),
-                        riv_cvar5=float(rivs[rivs <= np.quantile(rivs, .05)].mean()))
+                        riv_cvar5=float(rivs[rivs <= np.quantile(rivs, .05)].mean()),
+                        pnl=rs, riv_pnl=rivs)
         return float(np.mean(rs)), float(np.std(rs))
 
     def get_cleaned_checkpoints(self, n_checkpoints=4):
@@ -1345,6 +1378,13 @@ import json, sys
 
 torch.set_num_threads(2)
 
+# CHANGE 15: the four knobs the ablations sweep, overridable from the environment so a
+# sweep needs no edits.  The defaults ARE the settings that produced the reported table.
+PER_ALPHA = float(os.environ.get('PER_ALPHA', 0.0))  # 0.0 = uniform replay
+GRAD_CLIP = float(os.environ.get('GRAD_CLIP', 1.0))  # inf disables clipping
+LAMBDA_RIV = float(os.environ.get('LAMBDA_RIV', 0.0))  # RIV reward shaping
+RUN_TAG = os.environ.get('RUN_TAG', '')  # suffix for output filenames
+
 PHI = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 N_STATE = int(sys.argv[2]) if len(sys.argv) > 2 else 33
 N_ROUNDS = int(sys.argv[3]) if len(sys.argv) > 3 else 10
@@ -1352,7 +1392,7 @@ TRAIN_PATHS = int(sys.argv[4]) if len(sys.argv) > 4 else 3000
 TEST_PATHS = int(sys.argv[5]) if len(sys.argv) > 5 else 20000
 SEEDS = [int(sys.argv[6])] if len(sys.argv) > 6 else [78]
 VAL_PATHS = 4000
-TAG = f'phi{PHI}_s{N_STATE}_seed{SEEDS[0]}'
+TAG = f'phi{PHI}_s{N_STATE}_seed{SEEDS[0]}' + RUN_TAG
 
 BASE_PARAMS = {
     'n_months': 12,
@@ -1383,7 +1423,7 @@ BASE_PARAMS = {
     'initial_v': 0.0249967313173077,
     'penalty_lambda1': 10,
     'penalty_lambda2': 50.,
-    'penalty_lambda_riv': 0.0,
+    'penalty_lambda_riv': LAMBDA_RIV,  # CHANGE 15
     'monthly_seasonal_factors': np.array([
         -0.106616824924423, -0.152361004102492, -0.167724706188117, -0.16797984045645,
         -0.159526180248348, -0.13927943487493, -0.0953402986114613, -0.0474646801238288,
@@ -1419,12 +1459,12 @@ for seed in SEEDS:
 
     # CHANGE 10: the actor/critic architecture that produced the reported 3.914.
     policy_model_fn = lambda nS, bounds: FCDPAutoregressive(nS, bounds, hidden_dims=(256, 256, 256))
-    policy_max_grad_norm = 1
+    policy_max_grad_norm = GRAD_CLIP  # CHANGE 15
     policy_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     policy_optimizer_lr = 0.00003
 
     value_model_fn = lambda nS, nA: FCQV(nS, nA, hidden_dims=(256, 256, 256))
-    value_max_grad_norm = 1
+    value_max_grad_norm = GRAD_CLIP  # CHANGE 15
     value_optimizer_fn = lambda net, lr: optim.Adam(net.parameters(), lr=lr)
     value_optimizer_lr = 0.0005
 
@@ -1438,7 +1478,7 @@ for seed in SEEDS:
     # importance weights -- prioritised replay over-samples the terminal settlement
     # transitions, which carry by far the largest TD errors in a 12-step episode.
     replay_buffer_fn = lambda: PrioritizedReplayBuffer(max_samples=400_000, batch_size=512,
-                                                       alpha=0.0)
+                                                       alpha=PER_ALPHA)  # CHANGE 15
     # CHANGE 12: no uniform-random warm-up phase.  The gate
     # `len(buffer) > batch_size * n_warmup_batches` is still evaluated after the first
     # round, when the buffer already holds 12 * TRAIN_PATHS transitions, so learning
@@ -1474,7 +1514,8 @@ for seed in SEEDS:
     env = TTFGasStorageEnv(make_params(101, TRAIN_PATHS))
     validation_env = TTFGasStorageEnv(make_params(555, VAL_PATHS))
     print(f'[{TAG}] phi={PHI} n_state={N_STATE} obs_dim={env.observation_space.shape[0]} '
-          f'rounds={N_ROUNDS} train_paths={TRAIN_PATHS}', flush=True)
+          f'rounds={N_ROUNDS} train_paths={TRAIN_PATHS} '
+          f'per_alpha={PER_ALPHA} grad_clip={GRAD_CLIP} lambda_riv={LAMBDA_RIV}', flush=True)
 
     t0 = time.time()
     result, final_eval_score, training_time, wallclock_time = agent.train(
@@ -1488,7 +1529,8 @@ for seed in SEEDS:
     F0 = test_env.F_trajectory[0][0].astype(np.float64)
     X0 = test_env._intrinsic_lp(F0, 0.0, 0)
     res['intrinsic'] = float(-np.dot(F0, X0))
-    res.update(phi=PHI, n_state=N_STATE, seed=seed, rounds=N_ROUNDS,
+    res.update(per_alpha=PER_ALPHA, grad_clip=GRAD_CLIP, lambda_riv=LAMBDA_RIV,
+               phi=PHI, n_state=N_STATE, seed=seed, rounds=N_ROUNDS,
                train_paths=TRAIN_PATHS, test_paths=TEST_PATHS,
                train_seconds=wallclock_time, total_seconds=time.time() - t0)
 
@@ -1497,7 +1539,84 @@ for seed in SEEDS:
     print(f'[{TAG}] paired = {res["diff"]:+.4f} ({res["diff_se"]:.4f})  win={res["win"]:.3f}',
           flush=True)
     print(f'[{TAG}] intrinsic = {res["intrinsic"]:.4f}', flush=True)
+    pnl_ddpg = res.pop('pnl')  # per-path P&L, kept out of the JSON
+    pnl_riv = res.pop('riv_pnl')
+    np.save(f'pnl_ddpg_{TAG}.npy', pnl_ddpg)
+    np.save(f'pnl_riv_{TAG}.npy', pnl_riv)
     json.dump(res, open(f'vec_{TAG}.json', 'w'), indent=2)
-    torch.save(agent.online_policy_model.state_dict(), f'vec_actor_{TAG}.pt')
-    ddpg_results.append(res)
+    ddpg_results.append(result)
+
+    if final_eval_score > best_eval_score:
+        best_eval_score = final_eval_score
+        best_agent = agent
+
+# ==================================================================================
+# CHANGE 14: SAVE THE FOUR NETWORKS (the original four torch.save lines, adapted)
+# ==================================================================================
+SUF = f'autoregressive_penalized_modified_3_{TAG}'
+torch.save(best_agent.online_policy_model.state_dict(), f"online_policy_model_{SUF}.pth")
+torch.save(best_agent.target_policy_model.state_dict(), f"target_policy_model_{SUF}.pth")
+torch.save(best_agent.online_value_model.state_dict(), f"online_value_model_{SUF}.pth")
+torch.save(best_agent.target_value_model.state_dict(), f"target_value_model_{SUF}.pth")
+print(f'[{TAG}] saved online/target policy and value state_dicts', flush=True)
+
+# ==================================================================================
+# CHANGE 14: PLOT 1 -- Moving_Average_Reward_*.png
+# Identical construction to the original: per-seed max / min / mean envelopes of the
+# 500-episode moving average, training panel on top and evaluation panel below.
+# ==================================================================================
+ddpg_results = np.array(ddpg_results)
+ddpg_max_t, ddpg_max_r, ddpg_max_s, ddpg_max_sec, ddpg_max_rt = np.max(ddpg_results, axis=0).T
+ddpg_min_t, ddpg_min_r, ddpg_min_s, ddpg_min_sec, ddpg_min_rt = np.min(ddpg_results, axis=0).T
+ddpg_mean_t, ddpg_mean_r, ddpg_mean_s, ddpg_mean_sec, ddpg_mean_rt = np.mean(ddpg_results, axis=0).T
+ddpg_x = np.arange(len(ddpg_mean_s))
+
+plt.style.use('default')
+fig, axs = plt.subplots(2, 1, figsize=(15, 10), sharey=False, sharex=True)
+axs[0].plot(ddpg_max_r, 'r', linewidth=1)
+axs[0].plot(ddpg_min_r, 'r', linewidth=1)
+axs[0].plot(ddpg_mean_r, 'r:', label='Profit and Loss', linewidth=2)
+axs[0].fill_between(ddpg_x, ddpg_min_r, ddpg_max_r, facecolor='r', alpha=0.3)
+axs[1].plot(ddpg_max_s, 'r', linewidth=1)
+axs[1].plot(ddpg_min_s, 'r', linewidth=1)
+axs[1].plot(ddpg_mean_s, 'r:', label='Profit and Loss', linewidth=2)
+axs[1].fill_between(ddpg_x, ddpg_min_s, ddpg_max_s, facecolor='r', alpha=0.3)
+axs[0].set_title('Moving Average Return (Training)')
+axs[1].set_title('Moving Average Return (Evaluation)')
+plt.xlabel('Episodes')
+axs[0].legend(loc='upper left')
+plt.tight_layout()
+plt.savefig(f"Moving_Average_Reward_{SUF}.png", dpi=130)
+plt.close(fig)
+
+# ==================================================================================
+# CHANGE 14: PLOT 2 -- Reinforcement_Learning_Value_*.png
+# Same layout as the original.  The two curves show the first N_SHOW out-of-sample
+# paths for readability; the three horizontal averages are computed on ALL test paths.
+# ==================================================================================
+N_SHOW = 100
+V_IE = float(pnl_ddpg.mean())  # DRL average over ALL test paths
+V_IE_Rolling = float(pnl_riv.mean())  # RIV average over ALL test paths
+V_I = res['intrinsic']  # intrinsic value, locked in at t = 0
+
+plt.style.use('default')
+plt.figure(figsize=(14, 6))
+plt.plot(pnl_ddpg[:N_SHOW], color='grey', label="Realized RL Value")
+plt.plot(pnl_riv[:N_SHOW], color='black', label="Rolling Intrinsic Value")
+plt.axhline(V_IE, color='green', linestyle='--', linewidth=2,
+            label=f"RL Average Value ({V_IE:.3f}, all {len(pnl_ddpg):,} paths)")
+plt.axhline(V_IE_Rolling, color='red', linestyle='--', linewidth=2,
+            label=f"RI Average Value ({V_IE_Rolling:.3f}, all {len(pnl_riv):,} paths)")
+plt.axhline(V_I, color='blue', linestyle='--', linewidth=2,
+            label=f"Intrinsic Value ({V_I:.3f})")
+plt.xlabel(f"Simulation ID (first {N_SHOW} of {len(pnl_ddpg):,})")
+plt.ylabel("Realized Reservoir Value")
+plt.title("Reinforcement Learning Value Calculation")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig(f"Reinforcement_Learning_Value_{SUF}.png", dpi=130)
+plt.close()
+print(f'[{TAG}] wrote Moving_Average_Reward_{SUF}.png and '
+      f'Reinforcement_Learning_Value_{SUF}.png', flush=True)
 
